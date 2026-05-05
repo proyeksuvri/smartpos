@@ -1,0 +1,2 @@
+-- SmartPOS seed data.
+-- Keep this file lightweight. Add demo/staging data here only when needed.

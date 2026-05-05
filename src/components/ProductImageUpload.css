@@ -1,0 +1,173 @@
+/* ProductImageUpload.css */
+
+.piu-root {
+  display: grid;
+  gap: 8px;
+}
+
+/* Drop zone */
+.piu-zone {
+  align-items: center;
+  background: var(--bg);
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  min-height: 140px;
+  overflow: hidden;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.piu-zone:hover {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
+
+.piu-zone.dragging {
+  border-color: var(--accent);
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.piu-zone.has-image {
+  border-style: solid;
+  min-height: 180px;
+}
+
+/* Preview image */
+.piu-preview {
+  height: 100%;
+  left: 0;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+/* Placeholder */
+.piu-placeholder {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  pointer-events: none;
+  text-align: center;
+}
+
+.piu-icon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.piu-hint-main {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.piu-hint-sub {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Uploading overlay */
+.piu-uploading {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 10;
+}
+
+.piu-uploading span {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.piu-spinner {
+  animation: piu-spin 0.8s linear infinite;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  border-top-color: var(--accent);
+  height: 24px;
+  width: 24px;
+}
+
+@keyframes piu-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Progress bar */
+.piu-progress-bar {
+  background: var(--border);
+  border-radius: 999px;
+  height: 4px;
+  overflow: hidden;
+  width: 80%;
+}
+
+.piu-progress-fill {
+  background: var(--accent);
+  border-radius: 999px;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Action buttons */
+.piu-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.piu-btn {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 5px 12px;
+  transition: background 0.12s;
+}
+
+.piu-btn:hover { background: var(--border); }
+
+.piu-btn.remove {
+  color: #e11d48;
+}
+
+.piu-btn.remove:hover {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+/* Error */
+.piu-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  color: #be123c;
+  font-size: 12px;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+/* Hidden input */
+.piu-input-hidden {
+  height: 0;
+  opacity: 0;
+  position: absolute;
+  width: 0;
+}

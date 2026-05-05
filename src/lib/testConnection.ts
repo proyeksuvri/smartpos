@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 export async function testSupabaseConnection() {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('_test_connection')
     .select('*')
     .limit(1)

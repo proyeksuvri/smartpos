@@ -7,6 +7,87 @@
 
 ---
 
+## MVP SCOPE LOCK
+
+> Bagian ini adalah batas kerja versi pertama. Jangan mulai fitur Fase 2-4 sebelum semua checklist MVP selesai, dites, dan dipakai minimal di staging.
+
+### Tujuan MVP
+- [ ] Aplikasi bisa dipakai kasir untuk transaksi harian dari buka shift sampai tutup shift.
+- [ ] Owner bisa melihat produk, stok, transaksi, shift, dan laporan dasar.
+- [ ] Transaksi tetap aman saat koneksi internet putus sementara.
+- [ ] Data transaksi, stok, dan void punya audit trail yang cukup untuk operasional toko.
+
+### Fitur Wajib MVP
+- [ ] Auth & role dasar:
+  - Login owner/manager dengan email/password.
+  - Login kasir dengan akun terdaftar dan PIN yang disimpan sebagai `pin_hash`.
+  - Role `cashier`, `manager`, `owner` aktif di RLS dan RPC.
+- [ ] Master data:
+  - CRUD kategori.
+  - CRUD produk, termasuk SKU/barcode, harga ecer, harga grosir, HPP, stok, minimum stok, satuan.
+  - CRUD customer sederhana.
+  - CRUD supplier sederhana.
+- [ ] POS kasir:
+  - Buka shift wajib sebelum transaksi.
+  - Cari produk berdasarkan nama/SKU/barcode.
+  - Keranjang dengan tambah/kurang/hapus item.
+  - Harga grosir otomatis berdasarkan minimum qty.
+  - Diskon item/transaksi dengan validasi role.
+  - Pembayaran tunai/transfer dan hitung kembalian.
+  - Simpan transaksi lewat RPC `create_paid_transaction`.
+- [ ] Stok:
+  - Stok berkurang dari `stock_movements`, bukan update langsung dari client.
+  - Stok masuk, stok keluar, dan adjustment sederhana.
+  - Alert visual stok minimum di dashboard.
+- [ ] Shift:
+  - Buka shift dengan modal awal.
+  - Tutup shift dengan kas fisik, expected cash, dan selisih.
+  - Riwayat shift per kasir.
+- [ ] Void transaksi:
+  - Void hanya untuk transaksi yang sudah sync.
+  - Void wajib alasan.
+  - Stok dikembalikan lewat `stock_movements`.
+  - Perubahan tercatat di `audit_logs`.
+- [ ] Struk:
+  - Halaman receipt berdasarkan invoice.
+  - Print-friendly untuk printer thermal.
+  - QR/link receipt opsional jika waktu cukup.
+- [ ] Laporan dasar:
+  - Omset harian.
+  - Daftar transaksi.
+  - Laporan produk terjual.
+  - Laporan stok.
+  - Laporan shift.
+  - Export CSV minimal untuk transaksi dan stok.
+- [ ] Offline minimal:
+  - Cache produk aktif ke IndexedDB.
+  - Transaksi offline masuk ke `pending_transactions`.
+  - Sync memakai `idempotency_key` agar tidak dobel.
+  - Sync queue terlihat oleh owner/manager.
+
+### Fitur Ditunda Setelah MVP
+- [ ] Telegram bot, webhook, digest, dan command interaktif.
+- [ ] Anti-fraud lanjutan berbasis pola.
+- [ ] Health score toko.
+- [ ] Prediksi kehabisan stok.
+- [ ] Segmentasi customer.
+- [ ] Data retention otomatis dan archive bulanan.
+- [ ] Inline keyboard Telegram.
+- [ ] Kalender bisnis dan notifikasi kontekstual.
+- [ ] Laporan arus kas lengkap.
+
+### Definition of Done MVP
+- [ ] Semua migration schema core bisa dijalankan ulang di database kosong tanpa error.
+- [ ] RLS aktif di semua tabel aplikasi.
+- [ ] Semua operasi transaksi sensitif lewat RPC/Edge Function, bukan insert/update bebas dari client.
+- [ ] Test Fase 0 dan Fase 1 lulus.
+- [ ] E2E utama lulus: login, buka shift, transaksi, struk, void, tutup shift.
+- [ ] E2E offline lulus: transaksi offline, reconnect, sync sukses, tidak ada duplikasi.
+- [ ] Build production `npm run build` berhasil.
+- [ ] Owner menyetujui hasil staging sebelum fitur Fase 2 dimulai.
+
+---
+
 ## 🏗️ FASE 0: FOUNDATION (Minggu 1–2)
 
 ### Minggu 1 — Setup & Arsitektur
@@ -148,13 +229,14 @@ Di root folder project SmartPOS (`c:\00_DATA\App\03. AppTokoKasir\smartpos\`), b
 VITE_SUPABASE_URL=https://[project-ref].supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 
-# Telegram (diisi nanti di Fase 2)
-# VITE_TELEGRAM_BOT_TOKEN=
-
 # App Config
 VITE_APP_NAME=SmartPOS
 VITE_APP_VERSION=1.0.0
 ```
+
+> **Aturan secret:** semua key yang diawali `VITE_` akan masuk ke bundle frontend. Jangan pernah menyimpan `service_role`, Telegram bot token, token webhook, atau password database dengan prefix `VITE_`.
+>
+> **Secret server-side:** saat Fase 2, simpan `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, dan `SUPABASE_SERVICE_ROLE_KEY` di Supabase Edge Function secrets, bukan di `.env.local` frontend.
 
 > ⚠️ **Pastikan `.env.local` ada di `.gitignore`** — jangan pernah commit file ini ke GitHub!
 
@@ -286,25 +368,64 @@ Sebelum lanjut ke Hari 3, pastikan semua ini sudah selesai:
 ---
 
 #### Hari 3–4: Database Schema Core
-- [ ] Buat tabel `profiles` (id, role, name, pin, telegram_chat_id)
-- [ ] Buat tabel `categories` (id, name, description)
-- [ ] Buat tabel `products` (id, name, sku, barcode, category_id, price_retail, price_wholesale, wholesale_min_qty, cost_price, stock_qty, min_stock, unit, image_url)
-- [ ] Buat tabel `customers` (id, name, phone, type: ecer/grosir, address)
-- [ ] Buat tabel `suppliers` (id, name, phone, address)
-- [ ] Buat tabel `transactions` (id, invoice_no, cashier_id, customer_id, type: ecer/grosir, payment_method, subtotal, discount, total, cash_paid, change, shift_id, created_at)
-- [ ] Buat tabel `transaction_items` (id, transaction_id, product_id, qty, unit_price, discount, subtotal)
-- [ ] Buat tabel `shifts` (id, cashier_id, opened_at, closed_at, opening_cash, closing_cash, expected_cash, difference, status)
-- [ ] Buat tabel `stock_movements` (id, product_id, type: in/out/adjustment, qty, reference, notes, created_at)
-- [ ] Buat tabel `settings` (id, store_name, store_address, telegram_bot_token, telegram_chat_id, notification_preferences: jsonb)
-- [ ] Buat tabel `notification_log` (id, type, message, status, created_at)
-- [ ] Setup foreign keys & indexes
+- [ ] Tentukan enum/constraint utama:
+  - `user_role`: `cashier`, `manager`, `owner`
+  - `customer_type`: `retail`, `wholesale`
+  - `transaction_status`: `draft`, `paid`, `voided`, `sync_failed`
+  - `payment_method`: `cash`, `transfer`, `mixed`
+  - `stock_movement_type`: `sale`, `purchase`, `return`, `adjustment_in`, `adjustment_out`, `void`
+  - `shift_status`: `open`, `closed`
+- [ ] Buat tabel `profiles`:
+  - `id uuid primary key references auth.users(id)`, `role`, `name`, `pin_hash`, `is_active`, `created_at`, `updated_at`
+  - Jangan simpan PIN plaintext; simpan hash dan batasi verifikasi lewat RPC/server-side function.
+- [ ] Buat tabel `categories`:
+  - `id`, `name`, `description`, `is_active`, `created_at`, `updated_at`
+- [ ] Buat tabel `products`:
+  - `id`, `name`, `sku`, `barcode`, `category_id`, `price_retail`, `price_wholesale`, `wholesale_min_qty`, `cost_price`, `stock_qty`, `min_stock`, `unit`, `image_url`, `is_active`, `created_at`, `updated_at`
+  - Unique index untuk `sku` dan `barcode` jika nilainya tidak null.
+- [ ] Buat tabel `customers`:
+  - `id`, `name`, `phone`, `type`, `address`, `credit_limit`, `is_active`, `created_at`, `updated_at`
+- [ ] Buat tabel `suppliers`:
+  - `id`, `name`, `phone`, `address`, `is_active`, `created_at`, `updated_at`
+- [ ] Buat tabel relasi `product_suppliers`:
+  - `product_id`, `supplier_id`, `is_default`, `lead_time_days`, `last_cost_price`
+- [ ] Buat tabel `shifts`:
+  - `id`, `cashier_id`, `opened_at`, `closed_at`, `opening_cash`, `closing_cash`, `expected_cash`, `difference`, `status`, `notes`
+- [ ] Buat tabel `transactions`:
+  - `id`, `client_transaction_id`, `idempotency_key`, `invoice_no`, `cashier_id`, `customer_id`, `type`, `payment_method`, `subtotal`, `discount`, `total`, `cash_paid`, `change`, `shift_id`, `status`, `voided_at`, `voided_by`, `void_reason`, `synced_at`, `created_at`, `updated_at`
+  - Unique index untuk `invoice_no`, `client_transaction_id`, dan `idempotency_key` agar transaksi offline tidak masuk dobel saat sync.
+- [ ] Buat tabel `transaction_items`:
+  - `id`, `transaction_id`, `product_id`, `qty`, `unit_price`, `master_price`, `discount`, `subtotal`, `price_override_reason`
+  - Simpan `master_price` untuk audit diskon/harga tidak wajar.
+- [ ] Buat tabel `stock_movements`:
+  - `id`, `product_id`, `type`, `qty`, `reference_type`, `reference_id`, `notes`, `created_by`, `created_at`
+  - Semua perubahan stok wajib lewat tabel ini, bukan update langsung dari client.
+- [ ] Buat tabel `app_settings`:
+  - `id`, `store_name`, `store_address`, `telegram_chat_id`, `notification_preferences jsonb`, `daily_report_time`, `dnd_start`, `dnd_end`, `created_at`, `updated_at`
+  - Jangan simpan `telegram_bot_token` di tabel ini.
+- [ ] Buat tabel `notification_log`:
+  - `id`, `type`, `dedupe_key`, `message`, `status`, `error_message`, `sent_at`, `created_at`
+- [ ] Buat tabel `audit_logs`:
+  - `id`, `actor_id`, `action`, `entity_type`, `entity_id`, `before_data jsonb`, `after_data jsonb`, `created_at`
+- [ ] Setup foreign keys, check constraints, timestamp trigger, dan indexes untuk:
+  - `products(category_id)`, `transactions(created_at)`, `transactions(shift_id)`, `transaction_items(transaction_id)`, `stock_movements(product_id, created_at)`, `notification_log(dedupe_key, created_at)`
 
 #### Hari 5: Auth & RLS (Row Level Security)
 - [ ] Konfigurasi Supabase Auth (email/password)
+- [ ] Tentukan sumber role yang dipercaya:
+  - `profiles.role` menjadi sumber utama untuk policy dan RPC.
+  - Jangan percaya role dari localStorage/client state.
+  - Buat helper SQL `current_user_role()` untuk dipakai ulang di RLS policies.
 - [ ] Buat RLS policies:
-  - Kasir: INSERT transactions, SELECT products/stock
-  - Manajer: + SELECT reports, UPDATE stock
-  - Owner: full access semua tabel
+  - Cashier: SELECT produk/kategori/customer aktif, INSERT transaksi lewat RPC, SELECT transaksi miliknya dalam shift aktif
+  - Manager: akses cashier + manage produk, stok, customer, supplier, shift, dan laporan operasional
+  - Owner: full access data toko, settings, audit log, export
+  - Anonymous: tidak punya akses ke tabel aplikasi
+- [ ] Semua operasi sensitif memakai RPC/Edge Function:
+  - `create_paid_transaction`
+  - `void_transaction`
+  - `sync_transaction`
+  - `verify_cashier_pin`
 - [ ] Buat trigger auto-create profile saat user signup
 - [ ] Test auth flow: register, login, role check
 
@@ -321,13 +442,35 @@ Sebelum lanjut ke Hari 3, pastikan semua ini sudah selesai:
 
 #### Hari 8–9: Offline-First Architecture
 - [ ] Setup IndexedDB via `Dexie.js` atau `idb`
-- [ ] Buat local DB schema mirror: products, transactions, transaction_items
-- [ ] Buat sync engine:
-  - Online → fetch products dari Supabase → simpan ke IndexedDB
-  - Offline → simpan transaksi ke IndexedDB
-  - Reconnect → batch sync IndexedDB → Supabase
+- [ ] Buat local DB schema:
+  - `products_cache`: mirror produk aktif untuk POS offline
+  - `pending_transactions`: transaksi lokal dengan `client_transaction_id`, `idempotency_key`, `invoice_no`, `payload`, `sync_status`, `retry_count`, `last_error`, `created_at`, `synced_at`
+  - `sync_meta`: `last_products_sync_at`, `last_successful_sync_at`, `schema_version`
+- [ ] Buat sync engine bertahap:
+  - Online startup: fetch produk aktif, kategori, harga, dan stok ringkas dari Supabase lalu simpan ke IndexedDB
+  - Offline payment: simpan transaksi lengkap ke `pending_transactions` dengan status `pending`
+  - Reconnect: kirim transaksi satu per satu lewat RPC/Edge Function `sync_transaction`
+  - Server wajib mengecek `idempotency_key` sebelum insert agar retry tidak membuat transaksi dobel
+  - Jika sync sukses, update status lokal menjadi `synced`
+  - Jika gagal validasi/stok/shift, update status lokal menjadi `failed` dan tampilkan tindakan manual ke owner/manager
 - [ ] Indikator status online/offline di UI
-- [ ] Conflict resolution strategy (server wins untuk master data, merge untuk transaksi)
+- [ ] Conflict resolution strategy:
+  - Master data: server wins, cache lokal hanya read-only saat offline
+  - Transaksi: append-only, tidak di-merge manual di client
+  - Stok: server menghitung stok final dari `stock_movements`; client hanya mengirim transaksi dan item
+  - Void transaksi offline tidak diizinkan sampai transaksi berhasil sync
+- [ ] Tambahkan guard operasional:
+  - Blokir transaksi offline jika belum ada cache produk
+  - Batasi transaksi offline jika cache produk terlalu lama, contoh > 24 jam
+  - Tampilkan jumlah transaksi pending sync di header POS
+  - Sediakan halaman "Sync Queue" untuk retry manual dan melihat error
+
+#### Checkpoint Testing Fase 0
+- [ ] Unit test helper kalkulasi harga ecer/grosir, diskon, total, bayar, dan kembalian
+- [ ] Unit test generator `client_transaction_id`, `idempotency_key`, dan invoice offline
+- [ ] Integration test koneksi Supabase dan validasi environment variables
+- [ ] Test RLS awal: kasir tidak bisa baca/update data owner-only
+- [ ] Manual test offline cache: produk tetap muncul setelah browser offline/reload
 
 #### Hari 10: Routing & Auth UI
 - [ ] Setup React Router: `/login`, `/pos`, `/dashboard`, `/products`, `/settings`
@@ -434,7 +577,7 @@ SELECT
   sum(CASE WHEN type='grosir' THEN total ELSE 0 END) as wholesale_revenue,
   sum(CASE WHEN type='ecer' THEN total ELSE 0 END) as retail_revenue
 FROM transactions
-WHERE voided = false
+WHERE status <> 'voided'
 GROUP BY sale_date;
 ```
 
@@ -445,6 +588,14 @@ GROUP BY sale_date;
 - [ ] Laporan shift kasir (per kasir, per periode)
 - [ ] Export ke CSV/Excel
 - [ ] Cetak laporan (print-friendly CSS)
+
+#### Checkpoint Testing Fase 1
+- [ ] Unit test kalkulasi keranjang, harga grosir otomatis, diskon, pajak jika ada, dan pembulatan rupiah
+- [ ] Integration test transaksi paid: insert `transactions`, insert `transaction_items`, insert `stock_movements`, stok berkurang
+- [ ] Integration test void: status menjadi `voided`, stok kembali, audit log terisi, laporan tidak menghitung transaksi void
+- [ ] Integration test shift: transaksi diblokir sebelum buka shift, expected cash benar saat tutup shift
+- [ ] E2E test MVP: login kasir, buka shift, tambah produk, bayar tunai, cetak struk, tutup shift
+- [ ] E2E test offline MVP: cache produk tersedia, transaksi offline tersimpan, reconnect sync berhasil tanpa duplikasi
 
 ---
 
@@ -458,13 +609,13 @@ GROUP BY sale_date;
   - Parsing incoming messages & callback queries
   - Route ke handler berdasarkan command
 - [ ] Set webhook URL via Telegram API
-- [ ] Simpan bot token di Supabase Vault / settings table (encrypted)
+- [ ] Simpan bot token di Supabase Edge Function secrets atau Supabase Vault; jangan simpan di tabel aplikasi
 
 #### Hari 34: Koneksi Toko ↔ Telegram
 - [ ] Halaman Settings → Telegram Integration
 - [ ] Generate link deep-link unik per toko
 - [ ] User klik link → buka Telegram → klik Start
-- [ ] Bot kirim chat_id ke Edge Function → simpan di `settings`
+- [ ] Bot kirim chat_id ke Edge Function lalu simpan di `app_settings.telegram_chat_id`
 - [ ] Konfirmasi: "✅ Toko berhasil terhubung!"
 - [ ] Tombol disconnect di Settings
 
@@ -481,7 +632,7 @@ GROUP BY sale_date;
 - [ ] Trigger `on_stock_update`: jika stock_qty ≤ min_stock → kirim alert stok kritis
 - [ ] Trigger `on_shift_close`: jika selisih kas > toleransi → kirim alert
 - [ ] Trigger `on_transaction_void`: jika void count hari ini > 3 → kirim alert
-- [ ] Semua alert hanya dikirim jika notifikasi ON di settings
+- [ ] Semua alert hanya dikirim jika notifikasi ON di `app_settings`
 - [ ] Deduplikasi: alert yang sama tidak dikirim ulang dalam 1 jam
 
 #### Hari 38–39: Notifikasi Transaksi (Digest Mode)
@@ -516,7 +667,14 @@ GROUP BY sale_date;
 - [ ] Set jam kirim laporan harian
 - [ ] Set jam DND (Do Not Disturb)
 - [ ] Set threshold transaksi besar
-- [ ] Simpan ke `settings.notification_preferences` (JSONB)
+- [ ] Simpan ke `app_settings.notification_preferences` (JSONB)
+
+#### Checkpoint Testing Fase 2
+- [ ] Unit test formatter pesan Telegram, escaping Markdown, dan payload inline keyboard
+- [ ] Integration test Edge Function `telegram-webhook`: command valid, command tidak dikenal, callback query, dan signature/secret validation
+- [ ] Integration test pengiriman notifikasi: sukses, gagal API Telegram, retry, dan pencatatan `notification_log`
+- [ ] Test dedupe alert stok/void agar pesan yang sama tidak terkirim berulang dalam window yang sama
+- [ ] Manual production-like test: hubungkan bot, kirim `/omset`, `/stok`, `/help`, lalu disconnect
 
 ---
 
@@ -592,6 +750,13 @@ GROUP BY sale_date;
 - [ ] Monitor ukuran database: alert jika > 400MB
 - [ ] Auto-cleanup notification_log > 90 hari
 
+#### Checkpoint Testing Fase 3
+- [ ] Unit test rule anti-fraud: void threshold, diskon berlebih, harga override, dan selisih kas berulang
+- [ ] Integration test view/function intelligence dengan fixture data 30 hari
+- [ ] Test prediksi stok untuk produk tanpa penjualan, penjualan nol, stok nol, dan lead time kosong
+- [ ] Test data retention di staging: export berhasil, file bisa dibaca, data summary tetap tersedia
+- [ ] Review false positive alert bersama owner sebelum rule dinyalakan otomatis
+
 ---
 
 ## 🚀 FASE 4: POLISH & PRODUCTION (Minggu 13–15)
@@ -616,14 +781,15 @@ GROUP BY sale_date;
 - [ ] Halaman laporan arus kas di dashboard
 - [ ] Termasuk di laporan harian Telegram
 
-### Minggu 14 — Testing & QA
+### Minggu 14 - Final Hardening & QA
 
 #### Hari 66–67: Unit & Integration Testing
-- [ ] Test database functions & triggers
-- [ ] Test RLS policies (per role)
-- [ ] Test Edge Functions (webhook, cron)
-- [ ] Test sync engine (offline → online)
-- [ ] Test barcode scanner di berbagai device
+- [ ] Jalankan seluruh test suite Fase 0-3 dan pastikan tidak ada regression
+- [ ] Test database functions & triggers dengan data staging yang mendekati data toko
+- [ ] Test RLS policies lengkap per role: cashier, manager, owner, anonymous
+- [ ] Test Edge Functions (webhook, cron, scheduled report) dengan secret production-like
+- [ ] Test sync engine untuk retry, duplikasi `idempotency_key`, transaksi gagal, dan recovery manual
+- [ ] Test barcode scanner di berbagai device yang benar-benar dipakai kasir
 
 #### Hari 68–69: End-to-End Testing
 - [ ] Skenario lengkap: login → buka kasir → transaksi → tutup kasir
