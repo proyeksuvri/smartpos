@@ -121,6 +121,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /**
+   * Sign in a cashier using PIN.
+   * 1. Calls Edge Function `cashier-pin-login` which verifies PIN
+   *    and sets a temporary password on the cashier's auth account.
+   * 2. Frontend then calls signInWithPassword with the temp credentials.
+   * This uses the standard Supabase auth flow, so session creation is reliable.
+   */
+  const signInWithPin = useCallback(async (cashierId: string, pin: string) => {
+    // Step 1: Verify PIN server-side, get temp credentials
+    const { data: fnData, error: fnError } = await supabase.functions.invoke<{
+      email: string
+      temp_password: string
+    }>('cashier-pin-login', {
+      body: { cashier_id: cashierId, pin },
+    })
+
+    if (fnError) {
+      let message = 'Gagal menghubungi server.'
+      try {
+        const errorBody = await (fnError as any).context?.json?.()
+        if (errorBody) {
+          message = errorBody.detail?.message || errorBody.detail || errorBody.error || fnError.message
+        } else {
+          message = fnError.message
+        }
+      } catch {
+        message = fnError.message
+      }
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
+    }
+
+    if (!fnData?.email || !fnData?.temp_password) {
+      throw new Error('Respons server tidak valid.')
+    }
+
+    // Step 2: Sign in using the temp password (standard Supabase auth flow)
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: fnData.email,
+      password: fnData.temp_password,
+    })
+
+    if (signInError) {
+      throw new Error(signInError.message || 'Gagal membuat sesi kasir.')
+    }
+  }, [])
+
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
 
@@ -139,10 +185,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       loading,
       signIn,
+      signInWithPin,
       signOut,
       refreshProfile,
     }),
-    [loading, profile, refreshProfile, session, signIn, signOut],
+    [loading, profile, refreshProfile, session, signIn, signInWithPin, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -8,6 +8,7 @@ export interface AuthContextValue {
   profile: Profile | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
+  signInWithPin: (cashierId: string, pin: string) => Promise<void>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }

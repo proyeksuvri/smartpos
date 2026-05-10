@@ -17,7 +17,12 @@ const SettingsPage   = lazy(() => import('./pages/SettingsPage').then((m) => ({ 
 const ReceiptPage    = lazy(() => import('./pages/ReceiptPage').then((m) => ({ default: m.ReceiptPage })))
 const LoginPage      = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const TransactionsPage = lazy(() => import('./pages/TransactionsPage').then((m) => ({ default: m.TransactionsPage })))
-const ReportsPage      = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })))
+const ReportsPage           = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })))
+const OperationalCostsPage  = lazy(() => import('./pages/OperationalCostsPage').then((m) => ({ default: m.OperationalCostsPage })))
+const SyncQueuePage         = lazy(() => import('./pages/SyncQueuePage').then((m) => ({ default: m.SyncQueuePage })))
+const EmployeesPage         = lazy(() => import('./pages/EmployeesPage').then((m) => ({ default: m.EmployeesPage })))
+const ResetDataPage         = lazy(() => import('./pages/ResetDataPage').then((m) => ({ default: m.ResetDataPage })))
+const ShiftsPage            = lazy(() => import('./pages/ShiftsPage').then((m) => ({ default: m.ShiftsPage })))
 
 /* ── Page loading fallback ───────────────────────────────── */
 function PageLoader() {
@@ -52,7 +57,12 @@ function App() {
           <Route path="suppliers"  element={<Suspense fallback={<PageLoader />}><SuppliersPage /></Suspense>} />
           <Route path="settings"      element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
           <Route path="transactions"  element={<Suspense fallback={<PageLoader />}><TransactionsPage /></Suspense>} />
-          <Route path="reports"       element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
+          <Route path="reports"            element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
+          <Route path="operational-costs"  element={<Suspense fallback={<PageLoader />}><OperationalCostsPage /></Suspense>} />
+          <Route path="sync-queue"          element={<Suspense fallback={<PageLoader />}><SyncQueuePage /></Suspense>} />
+          <Route path="employees"            element={<Suspense fallback={<PageLoader />}><EmployeesPage /></Suspense>} />
+          <Route path="reset-data"           element={<Suspense fallback={<PageLoader />}><ResetDataPage /></Suspense>} />
+          <Route path="shifts"               element={<Suspense fallback={<PageLoader />}><ShiftsPage /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
 

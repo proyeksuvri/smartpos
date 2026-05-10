@@ -1,7 +1,8 @@
 /**
- * exportCsv — client-side CSV generator
+ * exportCsv — client-side CSV & Excel generator
  * Supports UTF-8 BOM (agar Excel bisa baca karakter Indonesia dengan benar)
  */
+import * as XLSX from 'xlsx'
 
 type CsvRow = (string | number | null | undefined)[]
 
@@ -44,6 +45,47 @@ export function downloadCsv(
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+/** Download file Excel (.xlsx) ke browser */
+export function downloadExcel(
+  filename: string,
+  headers: string[],
+  rows: CsvRow[],
+  sheetName = 'Laporan',
+): void {
+  // Buat worksheet dari array of arrays
+  const wsData: (string | number | null)[][] = [
+    headers,
+    ...rows.map((row) =>
+      row.map((v) => (v === undefined ? null : v))
+    ),
+  ]
+  const ws = XLSX.utils.aoa_to_sheet(wsData)
+
+  // Auto-width kolom berdasarkan panjang konten terpanjang
+  const colWidths = headers.map((h, i) => {
+    const maxLen = Math.max(
+      h.length,
+      ...rows.map((r) => String(r[i] ?? '').length),
+    )
+    return { wch: Math.min(maxLen + 4, 50) }
+  })
+  ws['!cols'] = colWidths
+
+  // Style header (bold) — memerlukan workbook type 'xlsx'
+  const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c })
+    if (!ws[addr]) continue
+    ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'E8F4FD' } } }
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+
+  const xlsxFilename = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
+  XLSX.writeFile(wb, xlsxFilename)
 }
 
 /** Helper: format tanggal Indonesia */

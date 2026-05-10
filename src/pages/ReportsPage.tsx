@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { downloadCsv, fmtDatetime, fmtRp } from '../lib/exportCsv'
+import { downloadCsv, downloadExcel, fmtDatetime, fmtRp } from '../lib/exportCsv'
 import { useSoldProductsReport, useStockReport, useShiftReport } from '../hooks/useReports'
 import { useTransactions } from '../hooks/useTransactions'
+import { useFinancialReport } from '../hooks/useFinancialReport'
 
 /* ── Helpers ────────────────────────────────────────────── */
 function todayStr()      { return new Date().toISOString().split('T')[0] }
@@ -10,13 +11,16 @@ function monthStartStr() {
   return d.toISOString().split('T')[0]
 }
 
-type TabKey = 'transactions' | 'products' | 'stock' | 'shifts'
+type TabKey = 'transactions' | 'products' | 'stock' | 'shifts' | 'finance'
 
 /* ── Reports Page ───────────────────────────────────────── */
 export function ReportsPage() {
   const [tab, setTab]         = useState<TabKey>('transactions')
   const [dateFrom, setDateFrom] = useState(monthStartStr())
   const [dateTo, setDateTo]   = useState(todayStr())
+
+  /* -- Financial tab -- */
+  const finHook = useFinancialReport()
 
   /* -- Transactions tab -- */
   const txHook = useTransactions({ dateFrom, dateTo, status: 'all', limit: 1000 })
@@ -36,6 +40,7 @@ export function ReportsPage() {
     if (tab === 'products')     void prodHook.fetch(dateFrom, dateTo)
     if (tab === 'stock')        void stockHook.fetch()
     if (tab === 'shifts')       void shiftHook.fetch(dateFrom, dateTo)
+    if (tab === 'finance')      void finHook.fetch(dateFrom, dateTo)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, dateFrom, dateTo])
 
@@ -92,11 +97,28 @@ export function ReportsPage() {
     downloadCsv(`laporan_shift_${dateFrom}_sd_${dateTo}`, headers, rows)
   }
 
+  function exportFinanceHeaders() {
+    return ['Produk', 'Kategori', 'Satuan', 'Qty Terjual', 'Omset (Rp)', 'HPP (Rp)', 'Laba Kotor (Rp)', 'Margin Kotor (%)']
+  }
+  function exportFinanceRows() {
+    return (finHook.summary?.productBreakdown ?? []).map((p) => [
+      p.product_name,
+      p.category_name ?? '—',
+      p.unit,
+      p.qty_sold,
+      p.revenue,
+      p.cogs,
+      p.gross_profit,
+      p.gross_margin.toFixed(2),
+    ])
+  }
+
   const TABS: { key: TabKey; label: string; icon: string }[] = [
     { key: 'transactions', label: 'Transaksi',      icon: '🧾' },
     { key: 'products',     label: 'Produk Terjual', icon: '📦' },
     { key: 'stock',        label: 'Stok Produk',    icon: '📊' },
-    { key: 'shifts',       label: 'Shift Kasir',    icon: '🕐' },
+    { key: 'shifts',       label: 'Shift Kasir',    icon: '🔐' },
+    { key: 'finance',      label: 'Keuangan',       icon: '💰' },
   ]
 
   const hasDateFilter = tab !== 'stock'
@@ -104,12 +126,14 @@ export function ReportsPage() {
     (tab === 'transactions' && txHook.loading) ||
     (tab === 'products'     && prodHook.loading) ||
     (tab === 'stock'        && stockHook.loading) ||
-    (tab === 'shifts'       && shiftHook.loading)
+    (tab === 'shifts'       && shiftHook.loading) ||
+    (tab === 'finance'      && finHook.loading)
   const currentError =
     (tab === 'transactions' && txHook.error) ||
     (tab === 'products'     && prodHook.error) ||
     (tab === 'stock'        && stockHook.error) ||
-    (tab === 'shifts'       && shiftHook.error)
+    (tab === 'shifts'       && shiftHook.error) ||
+    (tab === 'finance'      && finHook.error)
 
   function handleExport() {
     if (tab === 'transactions') exportTransactionsCsv()
@@ -122,6 +146,7 @@ export function ReportsPage() {
     tab === 'transactions' ? txHook.transactions.length :
     tab === 'products'     ? prodHook.data.length :
     tab === 'stock'        ? stockHook.data.length :
+    tab === 'finance'      ? (finHook.summary?.productBreakdown.length ?? 0) :
     shiftHook.data.length
 
   return (
@@ -132,14 +157,25 @@ export function ReportsPage() {
           <span className="eyebrow">Laporan</span>
           <h1>Export & Laporan</h1>
         </div>
-        <button
-          type="button"
-          className="primary-button"
-          onClick={handleExport}
-          disabled={isLoading || totalCount === 0}
-        >
-          ⬇ Export CSV ({totalCount} baris)
-        </button>
+        {tab === 'finance' ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="ghost-button"
+              onClick={() => downloadExcel(`keuangan_${dateFrom}_sd_${dateTo}`, exportFinanceHeaders(), exportFinanceRows(), 'Lap. Keuangan')}
+              disabled={isLoading || totalCount === 0}>
+              ⬇ Excel
+            </button>
+            <button type="button" className="primary-button"
+              onClick={() => downloadCsv(`keuangan_${dateFrom}_sd_${dateTo}`, exportFinanceHeaders(), exportFinanceRows())}
+              disabled={isLoading || totalCount === 0}>
+              ⬇ CSV ({totalCount} produk)
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="primary-button"
+            onClick={handleExport} disabled={isLoading || totalCount === 0}>
+            ⬇ Export CSV ({totalCount} baris)
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -337,6 +373,96 @@ export function ReportsPage() {
                     </div>
                   </>
                 )
+            )}
+            {/* ── FINANCE ── */}
+            {tab === 'finance' && (
+              finHook.summary === null
+                ? <div className="empty-state compact"><h2>Pilih periode dan tekan Terapkan</h2></div>
+                : (() => {
+                    const s = finHook.summary
+                    const fmt = (n: number) => `Rp ${n.toLocaleString('id-ID')}`
+                    const pct = (n: number) => `${n.toFixed(1)}%`
+                    const colorGreen = { color: '#16a34a', fontWeight: 700 } as const
+                    const colorRed   = { color: '#e11d48', fontWeight: 700 } as const
+                    return (
+                      <>
+                        {/* KPI Baris 1 — Pendapatan & HPP */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 10 }}>
+                          {[
+                            { label: 'Omset Bersih', value: fmt(s.revenue), sub: `Sebelum diskon: ${fmt(s.revenueGross)}`, style: {} },
+                            { label: 'HPP Total', value: fmt(s.cogs), sub: 'Harga Pokok Penjualan', style: colorRed },
+                            { label: 'Laba Kotor', value: fmt(s.grossProfit), sub: pct(s.grossMargin) + ' margin', style: s.grossProfit >= 0 ? colorGreen : colorRed },
+                            { label: 'Margin Kotor', value: pct(s.grossMargin), sub: `${s.totalTransactions} transaksi`, style: s.grossMargin >= 20 ? colorGreen : { color: '#d97706', fontWeight: 700 } },
+                          ].map((kpi) => (
+                            <div key={kpi.label} className="panel" style={{ textAlign: 'center', padding: '14px 12px' }}>
+                              <p className="sm-label" style={{ marginBottom: 4 }}>{kpi.label}</p>
+                              <p style={{ fontSize: 18, ...kpi.style }}>{kpi.value}</p>
+                              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{kpi.sub}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* KPI Baris 2 — Laba Bersih & Void */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
+                          {[
+                            { label: 'Total Diskon', value: fmt(s.totalDiscount), sub: pct(s.discountImpact) + ' dari omset kotor', style: { color: '#d97706', fontWeight: 700 } },
+                            { label: 'Biaya Operasional', value: fmt(s.operationalCosts), sub: 'Dari modul Biaya Operasional', style: colorRed },
+                            { label: 'Laba Bersih', value: fmt(s.netProfit), sub: pct(s.netMargin) + ' margin bersih', style: s.netProfit >= 0 ? colorGreen : colorRed },
+                            { label: 'Nilai Void', value: fmt(s.voidedValue), sub: `${s.voidedCount} transaksi dibatalkan`, style: s.voidedCount > 0 ? { color: '#e11d48', fontWeight: 700 } : {} },
+                          ].map((kpi) => (
+                            <div key={kpi.label} className="panel" style={{ textAlign: 'center', padding: '14px 12px' }}>
+                              <p className="sm-label" style={{ marginBottom: 4 }}>{kpi.label}</p>
+                              <p style={{ fontSize: 18, ...kpi.style }}>{kpi.value}</p>
+                              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{kpi.sub}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Tabel rincian per produk */}
+                        {s.productBreakdown.length === 0
+                          ? <div className="empty-state compact"><h2>Tidak ada data penjualan</h2></div>
+                          : (
+                            <div className="table-shell">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>#</th><th>Produk</th><th>Kategori</th><th style={{textAlign:'right'}}>Qty</th>
+                                    <th style={{textAlign:'right'}}>Omset</th><th style={{textAlign:'right'}}>HPP</th>
+                                    <th style={{textAlign:'right'}}>Laba Kotor</th><th style={{textAlign:'right'}}>Margin</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {s.productBreakdown.map((p, i) => (
+                                    <tr key={p.product_id}>
+                                      <td style={{color:'var(--text-muted)',fontSize:12}}>#{i+1}</td>
+                                      <td style={{fontWeight:650}}>{p.product_name}</td>
+                                      <td style={{fontSize:12,color:'var(--text-muted)'}}>{p.category_name ?? '—'}</td>
+                                      <td style={{textAlign:'right'}}>{p.qty_sold.toLocaleString('id-ID')} {p.unit}</td>
+                                      <td style={{textAlign:'right'}}>Rp {fmtRp(p.revenue)}</td>
+                                      <td style={{textAlign:'right',color:'#e11d48'}}>Rp {fmtRp(p.cogs)}</td>
+                                      <td style={{textAlign:'right',fontWeight:700,...(p.gross_profit>=0?{color:'#16a34a'}:{color:'#e11d48'})}}>
+                                        Rp {fmtRp(p.gross_profit)}
+                                      </td>
+                                      <td style={{textAlign:'right',fontWeight:650,...(p.gross_margin>=20?{color:'#16a34a'}:p.gross_margin>=10?{color:'#d97706'}:{color:'#e11d48'})}}>
+                                        {p.gross_margin.toFixed(1)}%
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr>
+                                    <td colSpan={4} style={{fontWeight:700,paddingTop:10}}>TOTAL</td>
+                                    <td style={{textAlign:'right',fontWeight:700}}>Rp {fmtRp(s.revenue)}</td>
+                                    <td style={{textAlign:'right',fontWeight:700,color:'#e11d48'}}>Rp {fmtRp(s.cogs)}</td>
+                                    <td style={{textAlign:'right',fontWeight:700,color:'#16a34a'}}>Rp {fmtRp(s.grossProfit)}</td>
+                                    <td style={{textAlign:'right',fontWeight:700}}>{s.grossMargin.toFixed(1)}%</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          )
+                        }
+                      </>
+                    )
+                  })()
             )}
           </>
         )}

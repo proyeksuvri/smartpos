@@ -22,7 +22,7 @@ const VOID_REASONS = [
 interface VoidTransactionModalProps {
   transaction: Transaction
   voidedBy: string         // user.id dari auth
-  onSuccess: () => void    // callback setelah void berhasil
+  onSuccess: (reason: string) => void    // callback setelah void berhasil
   onClose: () => void
 }
 
@@ -45,7 +45,7 @@ export function VoidTransactionModal({
   async function handleVoid() {
     if (!canSubmit) return
     const result = await voidTransaction(transaction.id, finalReason, voidedBy)
-    if (result.success) onSuccess()
+    if (result.success) onSuccess(finalReason)
   }
 
   return (

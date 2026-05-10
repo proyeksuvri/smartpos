@@ -93,6 +93,22 @@ export function useShift() {
 
     if (error) throw new Error(error.message)
     setActiveShift(null)
+
+    // Trigger Telegram Alert if difference !== 0
+    if (difference !== 0) {
+      void supabase.functions.invoke('telegram-bot', {
+        body: {
+          type: 'shift_diff_alert',
+          data: {
+            cashier_name: user?.user_metadata?.name ?? user?.email ?? 'Kasir',
+            expected: expectedCash,
+            actual: closingCash,
+            difference,
+          },
+        },
+      })
+    }
+
     return data as Shift
   }, [])
 

@@ -604,20 +604,20 @@ GROUP BY sale_date;
 ### Minggu 7 — Setup & Koneksi Telegram
 
 #### Hari 32–33: Setup Telegram Bot
-- [ ] Buat bot via @BotFather, simpan token
-- [ ] Buat Edge Function: `telegram-webhook`
-  - Parsing incoming messages & callback queries
-  - Route ke handler berdasarkan command
-- [ ] Set webhook URL via Telegram API
-- [ ] Simpan bot token di Supabase Edge Function secrets atau Supabase Vault; jangan simpan di tabel aplikasi
+- [x] Buat bot via @BotFather, simpan token
+- [x] Buat Edge Function: `telegram-webhook`
+  - [x] Parsing incoming messages & callback queries
+  - [x] Route ke handler berdasarkan command
+- [x] Set webhook URL via Telegram API
+- [x] Simpan bot token di Supabase Edge Function secrets atau Supabase Vault; jangan simpan di tabel aplikasi
 
 #### Hari 34: Koneksi Toko ↔ Telegram
-- [ ] Halaman Settings → Telegram Integration
-- [ ] Generate link deep-link unik per toko
-- [ ] User klik link → buka Telegram → klik Start
-- [ ] Bot kirim chat_id ke Edge Function lalu simpan di `app_settings.telegram_chat_id`
-- [ ] Konfirmasi: "✅ Toko berhasil terhubung!"
-- [ ] Tombol disconnect di Settings
+- [x] Halaman Settings → Telegram Integration
+- [x] Generate link deep-link unik per toko
+- [x] User klik link → buka Telegram → klik Start
+- [x] Bot kirim chat_id ke Edge Function lalu simpan di `app_settings.telegram_chat_id`
+- [x] Konfirmasi: "✅ Toko berhasil terhubung!"
+- [x] Tombol disconnect di Settings
 
 #### Hari 35: Fungsi Pengiriman Pesan
 - [ ] Database function `send_telegram_message(chat_id, text, reply_markup)`
@@ -628,11 +628,11 @@ GROUP BY sale_date;
 
 ### Minggu 8 — Notifikasi Otomatis
 
-#### Hari 36–37: Alert Real-Time (Database Triggers)
-- [ ] Trigger `on_stock_update`: jika stock_qty ≤ min_stock → kirim alert stok kritis
-- [ ] Trigger `on_shift_close`: jika selisih kas > toleransi → kirim alert
-- [ ] Trigger `on_transaction_void`: jika void count hari ini > 3 → kirim alert
-- [ ] Semua alert hanya dikirim jika notifikasi ON di `app_settings`
+#### Hari 36–37: Alert Real-Time (Database Triggers / Frontend Hooks)
+- [x] Trigger `on_stock_update`: jika stock_qty ≤ min_stock → kirim alert stok kritis
+- [x] Trigger `on_shift_close`: jika selisih kas > toleransi → kirim alert
+- [x] Trigger `on_transaction_void`: jika void count hari ini > 3 → kirim alert
+- [x] Semua alert hanya dikirim jika notifikasi ON di `app_settings`
 - [ ] Deduplikasi: alert yang sama tidak dikirim ulang dalam 1 jam
 
 #### Hari 38–39: Notifikasi Transaksi (Digest Mode)
@@ -642,12 +642,12 @@ GROUP BY sale_date;
 - [ ] Opsi: notif khusus untuk transaksi grosir besar (> threshold)
 
 #### Hari 40: Laporan Harian Terjadwal
-- [ ] pg_cron job jam 21:00 (atau jam tutup toko):
-  - Omset hari ini vs kemarin (% perubahan)
-  - Total transaksi & rata-rata
-  - Breakdown grosir vs ecer
-  - Top 3 produk terlaris
-  - Produk stok kritis
+- [x] pg_cron job jam 21:00 (atau jam tutup toko):
+  - [x] Omset hari ini vs kemarin (% perubahan)
+  - [x] Total transaksi & rata-rata
+  - [ ] Breakdown grosir vs ecer
+  - [ ] Top 3 produk terlaris
+  - [ ] Produk stok kritis
 - [ ] pg_cron job Senin 08:00: Laporan mingguan
 - [ ] pg_cron job tanggal 1 jam 07:00: Laporan bulanan
 
@@ -662,12 +662,12 @@ GROUP BY sale_date;
 - [ ] `/help` — Daftar semua perintah
 
 #### Hari 44–45: Panel Konfigurasi Notifikasi
-- [ ] Halaman Settings → Notifikasi
-- [ ] Toggle ON/OFF per jenis: stok kritis, digest transaksi, laporan harian/mingguan/bulanan
-- [ ] Set jam kirim laporan harian
-- [ ] Set jam DND (Do Not Disturb)
+- [x] Halaman Settings → Notifikasi
+- [x] Toggle ON/OFF per jenis: stok kritis, digest transaksi, laporan harian/mingguan/bulanan
+- [x] Set jam kirim laporan harian
+- [x] Set jam DND (Do Not Disturb)
 - [ ] Set threshold transaksi besar
-- [ ] Simpan ke `app_settings.notification_preferences` (JSONB)
+- [x] Simpan ke `app_settings.notification_preferences` (JSONB)
 
 #### Checkpoint Testing Fase 2
 - [ ] Unit test formatter pesan Telegram, escaping Markdown, dan payload inline keyboard

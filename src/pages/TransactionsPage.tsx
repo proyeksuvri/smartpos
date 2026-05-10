@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { VoidTransactionModal } from '../components/VoidTransactionModal'
 import { useAuth } from '../hooks/useAuth'
 import { useTransactions, type Transaction } from '../hooks/useTransactions'
+import { supabase } from '../lib/supabase'
 
 /* ── Helpers ────────────────────────────────────────────── */
 function formatRp(v: number) {
@@ -203,9 +204,21 @@ export function TransactionsPage() {
         <VoidTransactionModal
           transaction={voidTarget}
           voidedBy={user.id}
-          onSuccess={() => {
+          onSuccess={(reason) => {
             setVoidTarget(null)
             void refetch()
+            
+            // Trigger notifikasi Telegram (Void Alert)
+            void supabase.functions.invoke('telegram-bot', {
+              body: {
+                type: 'void_alert',
+                data: {
+                  transaction_id: voidTarget.invoice_no,
+                  total: voidTarget.total,
+                  reason,
+                },
+              },
+            })
           }}
           onClose={() => setVoidTarget(null)}
         />

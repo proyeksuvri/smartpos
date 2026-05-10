@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ProductModal } from '../components/ProductModal'
+import { ImportProductsModal } from '../components/ImportProductsModal'
 import { useAuth } from '../hooks/useAuth'
 import { useCategories } from '../hooks/useCategories'
 import { useProducts } from '../hooks/useProducts'
@@ -21,7 +22,7 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showInactive, setShowInactive] = useState(false)
 
-  const { products, loading, error, createProduct, updateProduct, deleteProduct } = useProducts({
+  const { products, loading, error, createProduct, updateProduct, deleteProduct, refetch } = useProducts({
     search,
     categoryId: categoryFilter,
     showInactive,
@@ -30,6 +31,7 @@ export function ProductsPage() {
   const { categories } = useCategories()
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Product | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
   const [actionError, setActionError] = useState('')
@@ -82,9 +84,14 @@ export function ProductsPage() {
               <span className="badge badge-warning">{lowStock} stok kritis</span>
             )}
             {canManage && (
-              <button id="btn-tambah-produk" type="button" className="primary-button" onClick={openCreate}>
-                + Tambah Produk
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button id="btn-import-produk" type="button" className="ghost-button" onClick={() => setImportModalOpen(true)}>
+                  📥 Import
+                </button>
+                <button id="btn-tambah-produk" type="button" className="primary-button" onClick={openCreate}>
+                  + Tambah Produk
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -231,6 +238,18 @@ export function ProductsPage() {
           categories={categories}
           onSave={handleSave}
           onClose={() => setModalOpen(false)}
+        />
+      )}
+
+      {/* Modal Import */}
+      {importModalOpen && (
+        <ImportProductsModal
+          categories={categories}
+          onClose={() => setImportModalOpen(false)}
+          onSuccess={() => {
+            setImportModalOpen(false)
+            refetch()
+          }}
         />
       )}
 

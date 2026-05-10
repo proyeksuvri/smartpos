@@ -4,8 +4,9 @@ import { PaymentModal } from '../components/PaymentModal'
 import { CloseShiftModal, OpenShiftModal } from '../components/ShiftModals'
 import { useAuth } from '../hooks/useAuth'
 import { useCart } from '../hooks/useCart'
-import { useCategories } from '../hooks/useCategories'
-import { useProducts } from '../hooks/useProducts'
+import { useOfflineSync } from '../hooks/useOfflineSync'
+import { useOnlineStatus } from '../hooks/useOnlineStatus'
+import { useProductCache } from '../lib/productCache'
 import { useShift } from '../hooks/useShift'
 import { supabase } from '../lib/supabase'
 import type { Product } from '../types/database'
@@ -102,18 +103,37 @@ function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
 export function PosPage() {
   const { user } = useAuth()
   const { activeShift, loading: shiftLoading, openShift, closeShift } = useShift()
-  const { categories } = useCategories()
-
   const [search, setSearch] = useState('')
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null)
 
-  // Fetch all products once, filter client-side for snappy category switching
-  const { products, loading: productsLoading } = useProducts({ search, showInactive: false })
+  // Mode Offline: ambil produk dari IndexedDB cache
+  const { products: cachedProducts, loading: productsLoading, syncing: productsSyncing, syncFromServer } = useProductCache()
+
+  const categories = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of cachedProducts) {
+      if (p.category_id && p.category_name) {
+        map.set(p.category_id, p.category_name)
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+  }, [cachedProducts])
 
   const displayedProducts = useMemo(() => {
-    if (!activeCategoryId) return products
-    return products.filter((p) => p.category_id === activeCategoryId)
-  }, [products, activeCategoryId])
+    let filtered = cachedProducts
+    if (search) {
+      const q = search.toLowerCase()
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.sku && p.sku.toLowerCase().includes(q)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q))
+      )
+    }
+    if (activeCategoryId) {
+      filtered = filtered.filter((p) => p.category_id === activeCategoryId)
+    }
+    return filtered as unknown as Product[] // cast karena perbedaan struktur (misal tanpa created_at)
+  }, [cachedProducts, search, activeCategoryId])
 
   const cart = useCart()
   const {
@@ -127,6 +147,9 @@ export function PosPage() {
   const [lastInvoice, setLastInvoice] = useState<string | null>(null)
   const [txError, setTxError] = useState('')
 
+  const isOnline = useOnlineStatus()
+  const { savePendingTransaction, pendingCount, syncing: syncRunning } = useOfflineSync()
+
   const hasShift = Boolean(activeShift)
 
   async function handlePayment(method: 'cash' | 'transfer' | 'mixed', cashPaid: number) {
@@ -134,32 +157,68 @@ export function PosPage() {
     if (items.length === 0) throw new Error('Keranjang kosong.')
 
     setTxError('')
-    const invoiceNo = generateInvoiceNo()
+    const clientTxId    = crypto.randomUUID()
+    const idempotencyKey = crypto.randomUUID()
+    const invoiceNo     = generateInvoiceNo()
 
-    const { error } = await supabase.rpc('create_paid_transaction', {
-      p_client_transaction_id: crypto.randomUUID(),
-      p_idempotency_key: crypto.randomUUID(),
-      p_invoice_no: invoiceNo,
-      p_customer_id: null,
-      p_type: 'retail' as const,
-      p_payment_method: method,
-      p_subtotal: subtotal,
-      p_discount: txDiscount,
-      p_total: total,
-      p_cash_paid: method === 'cash' || method === 'mixed' ? cashPaid : null,
-      p_change: method === 'cash' ? Math.max(0, cashPaid - total) : null,
-      p_shift_id: activeShift.id,
-      p_items: items.map((i) => ({
-        product_id: i.product.id,
-        qty: i.qty,
-        unit_price: i.unitPrice,
+    const payload = {
+      p_client_transaction_id: clientTxId,
+      p_idempotency_key:        idempotencyKey,
+      p_invoice_no:             invoiceNo,
+      p_customer_id:            null,
+      p_type:                   'retail' as const,
+      p_payment_method:         method,
+      p_subtotal:               subtotal,
+      p_discount:               txDiscount,
+      p_total:                  total,
+      p_cash_paid:              method === 'cash' || method === 'mixed' ? cashPaid : null,
+      p_change:                 method === 'cash' ? Math.max(0, cashPaid - total) : null,
+      p_shift_id:               activeShift.id,
+      p_items:                  items.map((i) => ({
+        product_id:   i.product.id,
+        qty:          i.qty,
+        unit_price:   i.unitPrice,
         master_price: i.product.price_retail,
-        discount: i.discount,
-        subtotal: i.subtotal,
+        discount:     i.discount,
+        subtotal:     i.subtotal,
       })),
+    }
+
+    if (!isOnline) {
+      // ── MODE OFFLINE: simpan ke IndexedDB ──
+      await savePendingTransaction({
+        localId:               crypto.randomUUID(),
+        client_transaction_id: clientTxId,
+        idempotency_key:        idempotencyKey,
+        invoice_no:             invoiceNo,
+        payload,
+      })
+      setLastInvoice(invoiceNo)
+      clearCart()
+      return
+    }
+
+    // ── MODE ONLINE: kirim langsung ke server ──
+    const { error } = await supabase.rpc('create_paid_transaction', payload)
+    if (error) throw new Error(error.message)
+    
+    // Check for critical stock to send telegram alerts
+    items.forEach((i) => {
+      const remaining = i.product.stock_qty - i.qty
+      // Trigger if it crosses or is at the min_stock threshold
+      if (i.product.min_stock > 0 && remaining <= i.product.min_stock && i.product.stock_qty > i.product.min_stock) {
+        void supabase.functions.invoke('telegram-bot', {
+          body: {
+            type: 'stock_alert',
+            data: {
+              product_name: i.product.name,
+              stock_qty: remaining,
+            },
+          },
+        })
+      }
     })
 
-    if (error) throw new Error(error.message)
     setLastInvoice(invoiceNo)
     clearCart()
   }
@@ -174,7 +233,19 @@ export function PosPage() {
           <div className="pos-header">
             <div>
               <span className="eyebrow">Kasir</span>
-              <h1 className="pos-title">POS</h1>
+              <h1 className="pos-title">
+                POS
+                <button 
+                  type="button" 
+                  className="ghost-button small" 
+                  onClick={() => void syncFromServer()}
+                  disabled={productsSyncing || !isOnline}
+                  style={{ marginLeft: 12, fontSize: 12 }}
+                  title="Tarik data produk terbaru"
+                >
+                  {productsSyncing ? '🔄 Syncing...' : '🔄 Sync'}
+                </button>
+              </h1>
             </div>
             <div className="pos-header-actions">
               {hasShift ? (
@@ -193,6 +264,31 @@ export function PosPage() {
           {!shiftLoading && !hasShift && (
             <div className="pos-no-shift">
               <p>⚠️ Buka shift terlebih dahulu sebelum memulai transaksi.</p>
+            </div>
+          )}
+
+          {/* Offline / Pending sync indicator */}
+          {!isOnline && (
+            <div style={{
+              background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8,
+              padding: '8px 14px', fontSize: 13, color: '#92400e',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span>📡</span>
+              <span><strong>Mode Offline</strong> — transaksi disimpan lokal dan akan sync otomatis saat internet pulih.</span>
+            </div>
+          )}
+
+          {pendingCount > 0 && isOnline && (
+            <div style={{
+              background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8,
+              padding: '8px 14px', fontSize: 13, color: '#1e40af',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span>☁ {syncRunning ? 'Menyinkronkan…' : `${pendingCount} transaksi offline menunggu sync`}</span>
+              <Link to="/sync-queue" style={{ fontSize: 12, color: '#2563eb', textDecoration: 'none', fontWeight: 700 }}>
+                Lihat Antrian →
+              </Link>
             </div>
           )}
 
