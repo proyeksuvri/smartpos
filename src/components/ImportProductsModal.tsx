@@ -62,7 +62,7 @@ export function ImportProductsModal({ categories, onClose, onSuccess }: ImportPr
       const stockMovementsToInsert: any[] = []
       
       // Batch ID for tracking bulk operations (could be a random UUID, using simple string for now)
-      const batchId = `import-${Date.now()}`
+      // const batchId = `import-${Date.now()}`
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]

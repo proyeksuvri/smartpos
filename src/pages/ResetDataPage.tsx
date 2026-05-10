@@ -101,7 +101,7 @@ export function ResetDataPage() {
     setResult(null)
 
     try {
-      const { data, error } = await supabase.functions.invoke('reset-data', {
+      const { error } = await supabase.functions.invoke('reset-data', {
         body: { target: selected.target, confirm: 'HAPUS' },
         headers: { Authorization: `Bearer ${token}` },
       })
