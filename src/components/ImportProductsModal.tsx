@@ -112,8 +112,11 @@ export function ImportProductsModal({ categories, onClose, onSuccess }: ImportPr
           price_wholesale: parseFloat(getCol(['Harga Grosir', 'Wholesale']) || '0'),
           wholesale_min_qty: parseFloat(getCol(['Min Qty Grosir', 'Min Grosir']) || '0'),
           cost_price: parseFloat(getCol(['Harga Modal', 'Modal', 'Cost']) || '0'),
-          stock_qty: stockQty,
-          min_stock: parseFloat(getCol(['Stok Min', 'Min Stok', 'Min']) || '0'),
+          // stock_qty dimulai dari 0 — stok akan dihitung oleh trigger apply_stock_movement
+          // saat stock_movements di-insert di bawah. Jangan set langsung di sini
+          // karena akan terjadi double counting.
+          stock_qty: 0,
+          min_stock: parseFloat(getCol(['Stok Min', 'Min Stok', 'Minimum Stok', 'Stock Min']) || '0'),
           unit: getCol(['Satuan', 'Unit'])?.toString().trim() || 'Pcs',
           is_active: true,
         })
@@ -121,7 +124,9 @@ export function ImportProductsModal({ categories, onClose, onSuccess }: ImportPr
         if (stockQty > 0) {
           stockMovementsToInsert.push({
             product_id: productId,
-            type: 'in',
+            // Gunakan 'purchase' bukan 'in' — enum valid: sale|purchase|return|adjustment_in|adjustment_out|void
+            // Trigger apply_stock_movement akan menambah stock_qty += qty untuk tipe 'purchase'
+            type: 'purchase',
             qty: stockQty,
             notes: 'Stok awal (Import Data)',
           })

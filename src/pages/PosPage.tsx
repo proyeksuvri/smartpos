@@ -4,25 +4,16 @@ import { PaymentModal } from '../components/PaymentModal'
 import { CloseShiftModal, OpenShiftModal } from '../components/ShiftModals'
 import { useAuth } from '../hooks/useAuth'
 import { useCart } from '../hooks/useCart'
+import { useCheckout } from '../hooks/useCheckout'
 import { useOfflineSync } from '../hooks/useOfflineSync'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useProductCache } from '../lib/productCache'
 import { useShift } from '../hooks/useShift'
-import { supabase } from '../lib/supabase'
+import { formatRp } from '../lib/formatters'
 import type { Product } from '../types/database'
 
 /* ── Helpers ────────────────────────────────────────────── */
-function formatRp(v: number) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', minimumFractionDigits: 0,
-  }).format(v)
-}
-
-function generateInvoiceNo() {
-  const d = new Date()
-  const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-  return `TRX-${date}-${String(Math.floor(Math.random() * 9000) + 1000)}`
-}
+// formatRp dan generateInvoiceNo telah dipindah ke src/lib/formatters.ts dan src/lib/invoiceUtils.ts
 
 /* ── Cart Item Row ──────────────────────────────────────── */
 interface CartItemRowProps {
@@ -32,16 +23,21 @@ interface CartItemRowProps {
 }
 
 function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
-  const lowStock = item.product.stock_qty > 0 && item.qty >= item.product.stock_qty
+  const p = item.product
+  const overStock = p.stock_qty > 0 && item.qty > p.stock_qty
+  const hasWholesale = p.price_wholesale > 0 && p.wholesale_min_qty > 1
+  const qtyUntilWholesale = hasWholesale && !item.isWholesale
+    ? p.wholesale_min_qty - item.qty
+    : 0
 
   return (
     <div className="pos-cart-item">
       {/* Thumbnail */}
       <div className="pos-cart-thumb">
-        {item.product.image_url ? (
+        {p.image_url ? (
           <img
-            src={item.product.image_url}
-            alt={item.product.name}
+            src={p.image_url}
+            alt={p.name}
             className="pos-cart-thumb-img"
             loading="lazy"
           />
@@ -55,13 +51,13 @@ function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
         {/* Top row: name + badge + remove */}
         <div className="pos-cart-item-top">
           <div className="pos-cart-item-name-wrap">
-            <span className="pos-cart-item-name">{item.product.name}</span>
+            <span className="pos-cart-item-name">{p.name}</span>
             {item.isWholesale && <span className="badge-grosir">Grosir</span>}
           </div>
           <button
             type="button"
             className="pos-cart-remove"
-            onClick={() => onRemove(item.product.id)}
+            onClick={() => onRemove(p.id)}
             title="Hapus item"
           >
             ✕
@@ -75,25 +71,37 @@ function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
             <button
               type="button"
               className="qty-btn"
-              onClick={() => onQty(item.product.id, item.qty - 1)}
+              onClick={() => onQty(p.id, item.qty - 1)}
             >−</button>
             <input
               className="qty-input"
               type="number"
               min="1"
-              max={item.product.stock_qty}
               value={item.qty}
-              onChange={(e) => onQty(item.product.id, parseInt(e.target.value) || 1)}
+              onChange={(e) => onQty(p.id, parseInt(e.target.value) || 1)}
             />
             <button
               type="button"
-              className={`qty-btn ${lowStock ? 'qty-max' : ''}`}
-              onClick={() => onQty(item.product.id, item.qty + 1)}
-              disabled={lowStock}
+              className="qty-btn"
+              onClick={() => onQty(p.id, item.qty + 1)}
             >+</button>
           </div>
           <span className="pos-cart-item-subtotal">{formatRp(item.subtotal)}</span>
         </div>
+
+        {/* Wholesale hint */}
+        {qtyUntilWholesale > 0 && (
+          <div className="pos-cart-wholesale-hint">
+            Tambah <strong>{qtyUntilWholesale}</strong> lagi → harga grosir {formatRp(p.price_wholesale)}
+          </div>
+        )}
+
+        {/* Over stock warning */}
+        {overStock && (
+          <div className="pos-cart-stock-warn">
+            ⚠️ Qty melebihi stok ({p.stock_qty} {p.unit})
+          </div>
+        )}
       </div>
     </div>
   )
@@ -148,77 +156,24 @@ export function PosPage() {
   const [txError, setTxError] = useState('')
 
   const isOnline = useOnlineStatus()
-  const { savePendingTransaction, pendingCount, syncing: syncRunning } = useOfflineSync()
+  const { pendingCount, syncing: syncRunning } = useOfflineSync()
+  const { checkout } = useCheckout()
 
   const hasShift = Boolean(activeShift)
 
+  /**
+   * Handler pembayaran — hanya mengurus UI state.
+   * Semua business logic didelegasikan ke useCheckout hook.
+   */
   async function handlePayment(method: 'cash' | 'transfer' | 'mixed', cashPaid: number) {
     if (!activeShift || !user) throw new Error('Shift tidak aktif.')
-    if (items.length === 0) throw new Error('Keranjang kosong.')
 
     setTxError('')
-    const clientTxId    = crypto.randomUUID()
-    const idempotencyKey = crypto.randomUUID()
-    const invoiceNo     = generateInvoiceNo()
-
-    const payload = {
-      p_client_transaction_id: clientTxId,
-      p_idempotency_key:        idempotencyKey,
-      p_invoice_no:             invoiceNo,
-      p_customer_id:            null,
-      p_type:                   'retail' as const,
-      p_payment_method:         method,
-      p_subtotal:               subtotal,
-      p_discount:               txDiscount,
-      p_total:                  total,
-      p_cash_paid:              method === 'cash' || method === 'mixed' ? cashPaid : null,
-      p_change:                 method === 'cash' ? Math.max(0, cashPaid - total) : null,
-      p_shift_id:               activeShift.id,
-      p_items:                  items.map((i) => ({
-        product_id:   i.product.id,
-        qty:          i.qty,
-        unit_price:   i.unitPrice,
-        master_price: i.product.price_retail,
-        discount:     i.discount,
-        subtotal:     i.subtotal,
-      })),
-    }
-
-    if (!isOnline) {
-      // ── MODE OFFLINE: simpan ke IndexedDB ──
-      await savePendingTransaction({
-        localId:               crypto.randomUUID(),
-        client_transaction_id: clientTxId,
-        idempotency_key:        idempotencyKey,
-        invoice_no:             invoiceNo,
-        payload,
-      })
-      setLastInvoice(invoiceNo)
-      clearCart()
-      return
-    }
-
-    // ── MODE ONLINE: kirim langsung ke server ──
-    const { error } = await supabase.rpc('create_paid_transaction', payload)
-    if (error) throw new Error(error.message)
-    
-    // Check for critical stock to send telegram alerts
-    items.forEach((i) => {
-      const remaining = i.product.stock_qty - i.qty
-      // Trigger if it crosses or is at the min_stock threshold
-      if (i.product.min_stock > 0 && remaining <= i.product.min_stock && i.product.stock_qty > i.product.min_stock) {
-        void supabase.functions.invoke('telegram-bot', {
-          body: {
-            type: 'stock_alert',
-            data: {
-              product_name: i.product.name,
-              stock_qty: remaining,
-            },
-          },
-        })
-      }
-    })
-
+    const { invoiceNo } = await checkout(
+      { shiftId: activeShift.id, userId: user.id, items, subtotal, txDiscount, total },
+      method,
+      cashPaid,
+    )
     setLastInvoice(invoiceNo)
     clearCart()
   }

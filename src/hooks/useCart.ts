@@ -11,7 +11,7 @@ export interface CartItem {
 }
 
 function calcItem(product: Product, qty: number, discount: number): CartItem {
-  const isWholesale = product.price_wholesale > 0 && qty >= product.wholesale_min_qty
+  const isWholesale = product.price_wholesale > 0 && product.wholesale_min_qty > 0 && qty >= product.wholesale_min_qty
   const unitPrice = isWholesale ? product.price_wholesale : product.price_retail
   const subtotal = Math.max(0, unitPrice * qty - discount)
   return { product, qty, unitPrice, discount, subtotal, isWholesale }

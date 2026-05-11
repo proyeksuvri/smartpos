@@ -498,6 +498,26 @@
   width: fit-content;
 }
 
+/* Wholesale threshold hint */
+.pos-cart-wholesale-hint {
+  background: #f0fdf4;
+  border-radius: 5px;
+  color: #15803d;
+  font-size: 11px;
+  padding: 3px 8px;
+  line-height: 1.4;
+}
+
+/* Over-stock warning */
+.pos-cart-stock-warn {
+  background: #fffbeb;
+  border-radius: 5px;
+  color: #92400e;
+  font-size: 11px;
+  padding: 3px 8px;
+  line-height: 1.4;
+}
+
 .pos-cart-item-price {
   color: var(--text-muted);
   font-size: 11px;

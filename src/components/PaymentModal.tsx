@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { CartItem } from '../hooks/useCart'
+import { formatRp } from '../lib/formatters'
 import '../styles/SimpleModal.css'
 import './PaymentModal.css'
 
@@ -12,9 +13,7 @@ interface PaymentModalProps {
   onClose: () => void
 }
 
-function formatRp(v: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(v)
-}
+// formatRp dipindah ke src/lib/formatters.ts
 
 const QUICK_CASH = [10000, 20000, 50000, 100000, 50000, 200000]
 

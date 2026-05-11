@@ -43,6 +43,31 @@ const TYPE_LABEL: Record<MovementType, string> = {
 
 export { TYPE_LABEL }
 
+/* ── Business Rules: Stock Status ────────────────────────────── */
+
+/** Status ketersediaan stok berdasarkan business rule */
+export type StockStatus = 'ok' | 'low' | 'empty'
+
+/**
+ * Tentukan status stok sebuah produk.
+ * Business rule:
+ * - 'empty' → stok ≤ 0
+ * - 'low'   → stok > 0 tapi ≤ min_stock
+ * - 'ok'    → stok > min_stock (atau min_stock tidak diset)
+ */
+export function stockStatus(p: Pick<StockProduct, 'stock_qty' | 'min_stock'>): StockStatus {
+  if (p.stock_qty <= 0) return 'empty'
+  if (p.min_stock > 0 && p.stock_qty <= p.min_stock) return 'low'
+  return 'ok'
+}
+
+/** Label tampilan untuk setiap status stok */
+export const STOCK_STATUS_LABEL: Record<StockStatus, string> = {
+  ok:    'Aman',
+  low:   'Kritis',
+  empty: 'Habis',
+}
+
 export function useStockMovements(productId?: string) {
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [loading, setLoading] = useState(true)

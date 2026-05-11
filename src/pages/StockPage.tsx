@@ -1,226 +1,23 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import {
+  STOCK_STATUS_LABEL,
   TYPE_LABEL,
+  stockStatus,
   useStockMovements,
   useStockMutations,
   useStockProducts,
-  type MovementType,
   type StockProduct,
+  type StockStatus,
 } from '../hooks/useStock'
+import { formatDate } from '../lib/formatters'
+import { StockMovementModal, type ModalMode } from '../components/StockMovementModal'
 import '../styles/SimpleModal.css'
 
-/* ── helpers ────────────────────────────────────────────── */
-function formatDatetime(iso: string) {
-  return new Date(iso).toLocaleString('id-ID', {
-    day: '2-digit', month: '2-digit', year: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
-
-type StockStatus = 'ok' | 'low' | 'empty'
-function stockStatus(p: StockProduct): StockStatus {
-  if (p.stock_qty <= 0) return 'empty'
-  if (p.min_stock > 0 && p.stock_qty <= p.min_stock) return 'low'
-  return 'ok'
-}
-
-const STATUS_LABEL: Record<StockStatus, string> = {
-  ok: 'Aman',
-  low: 'Kritis',
-  empty: 'Habis',
-}
-
-/* ── Movement Modal ─────────────────────────────────────── */
-type ModalMode = 'in' | 'out' | 'opname'
-
-interface MovementModalProps {
-  mode: ModalMode
-  products: StockProduct[]
-  selectedProduct?: StockProduct | null
-  onSave: (productId: string, type: MovementType, qty: number, notes: string) => Promise<void>
-  onClose: () => void
-}
-
-function MovementModal({ mode, products, selectedProduct, onSave, onClose }: MovementModalProps) {
-  const [productId, setProductId] = useState(selectedProduct?.id ?? '')
-  const [qty, setQty] = useState(1)
-  const [physicalQty, setPhysicalQty] = useState(0)
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const formRef = useRef<HTMLFormElement>(null)
-
-  const chosenProduct = products.find((p) => p.id === productId) ?? null
-
-  const MODAL_CONFIG = {
-    in:     { title: 'Stok Masuk',  eyebrow: 'Pembelian / Penerimaan', type: 'purchase' as MovementType },
-    out:    { title: 'Stok Keluar', eyebrow: 'Rusak / Hilang / Retur',  type: 'adjustment_out' as MovementType },
-    opname: { title: 'Stock Opname', eyebrow: 'Penyesuaian Fisik',      type: 'adjustment_in' as MovementType },
-  }
-
-  const config = MODAL_CONFIG[mode]
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!productId) { setError('Pilih produk terlebih dahulu.'); return }
-
-    let finalType: MovementType = config.type
-    let finalQty = qty
-
-    if (mode === 'opname' && chosenProduct) {
-      const diff = physicalQty - chosenProduct.stock_qty
-      if (diff === 0) { setError('Stok fisik sama dengan stok sistem — tidak ada perubahan.'); return }
-      finalType = diff > 0 ? 'adjustment_in' : 'adjustment_out'
-      finalQty = Math.abs(diff)
-    }
-
-    setSaving(true)
-    setError('')
-    try {
-      await onSave(productId, finalType, finalQty, notes)
-      onClose()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="sm-backdrop" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="sm-sheet">
-        <div className="sm-header">
-          <div className="sm-header-info">
-            <span className="sm-eyebrow">{config.eyebrow}</span>
-            <h2 className="sm-title">{config.title}</h2>
-          </div>
-          <button type="button" className="sm-close" onClick={onClose}>✕</button>
-        </div>
-
-        <form ref={formRef} onSubmit={(e) => void handleSubmit(e)} className="sm-body">
-          {/* Product selector */}
-          <div className="sm-field">
-            <label className="sm-label" htmlFor="mv-product">
-              Produk <span className="sm-req">*</span>
-            </label>
-            <select
-              id="mv-product"
-              className="sm-input"
-              value={productId}
-              onChange={(e) => {
-                setProductId(e.target.value)
-                const p = products.find((pr) => pr.id === e.target.value)
-                if (p && mode === 'opname') setPhysicalQty(p.stock_qty)
-              }}
-              required
-            >
-              <option value="">— Pilih produk —</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} (stok: {p.stock_qty} {p.unit})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Current stock info */}
-          {chosenProduct && (
-            <div className="shift-info-card">
-              <div className="shift-info-row">
-                <span>Stok Sistem</span>
-                <strong>{chosenProduct.stock_qty} {chosenProduct.unit}</strong>
-              </div>
-              {chosenProduct.min_stock > 0 && (
-                <div className="shift-info-row">
-                  <span>Stok Minimum</span>
-                  <strong>{chosenProduct.min_stock} {chosenProduct.unit}</strong>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Qty fields */}
-          {mode === 'opname' ? (
-            <div className="sm-field">
-              <label className="sm-label" htmlFor="mv-physical">
-                Stok Fisik (hasil hitung) <span className="sm-req">*</span>
-              </label>
-              <input
-                id="mv-physical"
-                className="sm-input"
-                type="number"
-                min="0"
-                step="any"
-                value={physicalQty}
-                onChange={(e) => setPhysicalQty(parseFloat(e.target.value) || 0)}
-                required
-              />
-              {chosenProduct && physicalQty !== chosenProduct.stock_qty && (
-                <span className={`sm-hint ${physicalQty > chosenProduct.stock_qty ? 'hint-plus' : 'hint-minus'}`}>
-                  Selisih: {physicalQty > chosenProduct.stock_qty ? '+' : ''}{physicalQty - chosenProduct.stock_qty} {chosenProduct.unit}
-                  {' → '}akan dicatat sebagai {physicalQty > chosenProduct.stock_qty ? 'Penyesuaian +' : 'Penyesuaian −'}
-                </span>
-              )}
-            </div>
-          ) : (
-            <div className="sm-field">
-              <label className="sm-label" htmlFor="mv-qty">
-                Jumlah {mode === 'in' ? 'Masuk' : 'Keluar'} <span className="sm-req">*</span>
-              </label>
-              <input
-                id="mv-qty"
-                className="sm-input"
-                type="number"
-                min="0.001"
-                step="any"
-                value={qty}
-                onChange={(e) => setQty(parseFloat(e.target.value) || 0)}
-                required
-              />
-              {chosenProduct && (
-                <span className="sm-hint">
-                  Stok setelah: {mode === 'in'
-                    ? chosenProduct.stock_qty + qty
-                    : chosenProduct.stock_qty - qty} {chosenProduct.unit}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Notes */}
-          <div className="sm-field">
-            <label className="sm-label" htmlFor="mv-notes">
-              Keterangan {mode !== 'in' && <span className="sm-req">*</span>}
-            </label>
-            <textarea
-              id="mv-notes"
-              className="sm-input"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={
-                mode === 'in' ? 'Contoh: Pembelian dari supplier X' :
-                mode === 'out' ? 'Contoh: Barang rusak, expired, atau hilang' :
-                'Contoh: Hasil stock opname bulanan'
-              }
-              rows={2}
-              required={mode !== 'in'}
-            />
-          </div>
-
-          {error && <div className="sm-error">{error}</div>}
-        </form>
-
-        <div className="sm-footer">
-          <button type="button" className="sm-btn-cancel" onClick={onClose}>Batal</button>
-          <button type="button" className="sm-btn-save" disabled={saving} onClick={() => formRef.current?.requestSubmit()}>
-            {saving ? '⟳ Menyimpan...' : config.title}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
+// formatDatetime → diganti formatDate dari lib/formatters.ts
+// stockStatus, StockStatus, STATUS_LABEL → dipindah ke hooks/useStock.ts
+// MovementModal → dipindah ke components/StockMovementModal.tsx
+// ModalMode → di-re-export dari StockMovementModal.tsx
 
 /* ── Stock Page ─────────────────────────────────────────── */
 type ActiveTab = 'list' | 'history'
@@ -235,7 +32,7 @@ export function StockPage() {
 
   const [tab, setTab] = useState<ActiveTab>('list')
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState<'all' | 'low' | 'empty'>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | StockStatus>('all')
   const [modalMode, setModalMode] = useState<ModalMode | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(null)
   const [actionError, setActionError] = useState('')
@@ -377,7 +174,7 @@ export function StockPage() {
                             </td>
                             <td>
                               <span className={`status-badge ${st === 'ok' ? 'active' : st === 'low' ? 'warning' : 'inactive'}`}>
-                                {STATUS_LABEL[st]}
+                                {STOCK_STATUS_LABEL[st]}
                               </span>
                             </td>
                             {canManage && (
@@ -443,7 +240,7 @@ export function StockPage() {
                         return (
                           <tr key={mv.id}>
                             <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>
-                              {formatDatetime(mv.created_at)}
+                              {formatDate(mv.created_at)}
                             </td>
                             <td><strong className="product-name">{mv.product_name}</strong></td>
                             <td>
@@ -475,7 +272,7 @@ export function StockPage() {
 
       {/* Movement Modal */}
       {modalMode && (
-        <MovementModal
+        <StockMovementModal
           mode={modalMode}
           products={products}
           selectedProduct={selectedProduct}
