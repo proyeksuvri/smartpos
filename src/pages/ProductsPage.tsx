@@ -46,14 +46,16 @@ export function ProductsPage() {
     setModalOpen(true)
   }
 
-  async function handleSave(payload: ProductInsert) {
+  async function handleSave(payload: ProductInsert): Promise<{ id: string }> {
     setActionError('')
     if (editTarget) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { stock_qty: _sq, ...updatePayload } = payload
       await updateProduct(editTarget.id, updatePayload)
+      return { id: editTarget.id }
     } else {
-      await createProduct(payload)
+      const created = await createProduct(payload)
+      return { id: created.id }
     }
   }
 

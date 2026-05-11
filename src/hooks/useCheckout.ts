@@ -75,7 +75,7 @@ export function useCheckout() {
         p_idempotency_key:        idempotencyKey,
         p_invoice_no:             invoiceNo,
         p_customer_id:            null,
-        p_type:                   'retail' as const,
+        p_type:                   items.some((i) => i.isWholesale) ? 'wholesale' as const : 'retail' as const,
         p_payment_method:         method,
         p_subtotal:               subtotal,
         p_discount:               txDiscount,
@@ -85,8 +85,10 @@ export function useCheckout() {
         p_shift_id:               shiftId,
         p_items: items.map((i) => ({
           product_id:   i.product.id,
-          qty:          i.qty,
+          qty:          i.qtyInBase,    // selalu unit dasar untuk stok & DB
           unit_price:   i.unitPrice,
+          unit_label:   i.unitLabel,    // 'pcs', 'pak', 'karton', dll. (untuk struk)
+          display_qty:  i.qty,          // qty tampil di struk (mis. 2 pak)
           master_price: i.product.price_retail,
           discount:     i.discount,
           subtotal:     i.subtotal,
@@ -135,7 +137,7 @@ export function useCheckout() {
  */
 function _triggerStockAlerts(items: CartItem[]): void {
   for (const item of items) {
-    const remaining = item.product.stock_qty - item.qty
+    const remaining = item.product.stock_qty - item.qtyInBase  // pakai unit dasar
     const crossedThreshold =
       item.product.min_stock > 0 &&
       remaining <= item.product.min_stock &&

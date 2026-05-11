@@ -314,3 +314,103 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+/* ═══════════════════════════════════════════════
+   UNIT PARTAI SECTION
+   ═══════════════════════════════════════════════ */
+
+/* Section header: label + tombol Tambah Unit */
+.pm-section-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: -4px;
+}
+
+/* Tombol "+ Tambah Unit" */
+.pm-btn-add-unit {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+  padding: 0 12px;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.pm-btn-add-unit:hover {
+  background: #dbeafe;
+  border-color: var(--accent);
+}
+
+/* Container daftar unit */
+.pm-unit-list {
+  display: grid;
+  gap: 6px;
+}
+
+/* Setiap baris unit: nama | isi | harga | hapus */
+.pm-unit-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 90px 1fr 28px;
+}
+
+/* Baris header kolom */
+.pm-unit-header {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: -2px;
+  padding: 0 2px;
+  text-transform: uppercase;
+}
+
+/* Harga auto-calculated (display-only) */
+.pm-unit-price {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Tombol hapus unit */
+.pm-btn-remove-unit {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  height: 28px;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s, background 0.12s;
+  width: 28px;
+}
+
+.pm-btn-remove-unit:hover {
+  background: #fff1f2;
+  color: #e11d48;
+  opacity: 1;
+}
+
+/* Hint di bawah tabel unit */
+.pm-unit-hint {
+  margin-top: 4px;
+  padding: 0 2px;
+}
+
+@media (max-width: 480px) {
+  .pm-unit-row {
+    grid-template-columns: 1fr 70px 1fr 28px;
+  }
+}

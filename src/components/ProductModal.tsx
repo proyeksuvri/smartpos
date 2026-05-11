@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Category, Product, ProductInsert } from '../types/database'
 import { ProductImageUpload } from './ProductImageUpload'
+import { useProductUnits, saveProductUnit, deleteProductUnit } from '../hooks/useProductUnits'
+import { formatRp } from '../lib/formatters'
 import '../styles/ProductModal.css'
 
 interface ProductModalProps {
   product?: Product | null
   categories: Category[]
-  onSave: (payload: ProductInsert) => Promise<void>
+  onSave: (payload: ProductInsert) => Promise<{ id: string }>
   onClose: () => void
 }
 
@@ -28,46 +30,152 @@ const emptyForm = (): ProductInsert => ({
   is_active: true,
 })
 
+/* ── Draft unit row (belum disimpan ke DB) ─────────────── */
+interface DraftUnit {
+  _key:              string           // local key for React (UUID atau DB id)
+  id?:               string           // undefined = row baru
+  unit_name:         string
+  conversion_factor: number
+  sort_order:        number
+  _toDelete?:        boolean          // tandai untuk dihapus
+}
+
 export function ProductModal({ product, categories, onSave, onClose }: ProductModalProps) {
-  const [form, setForm] = useState<ProductInsert>(emptyForm())
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const formRef = useRef<HTMLFormElement>(null)
+  const [form, setForm]       = useState<ProductInsert>(emptyForm())
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState('')
+  const formRef               = useRef<HTMLFormElement>(null)
 
   const isEdit = Boolean(product)
 
+  // Unit partai yang sudah tersimpan di DB (hanya saat edit)
+  const { units: existingUnits } = useProductUnits(product?.id)
+
+  // State draft: gabungan unit yang sudah ada + yang baru ditambah user
+  const [draftUnits, setDraftUnits] = useState<DraftUnit[]>([])
+
+  /* Sync form dari product prop */
   useEffect(() => {
     if (product) {
       setForm({
-        name: product.name,
-        sku: product.sku,
-        barcode: product.barcode,
-        category_id: product.category_id,
-        price_retail: product.price_retail,
-        price_wholesale: product.price_wholesale,
+        name:              product.name,
+        sku:               product.sku,
+        barcode:           product.barcode,
+        category_id:       product.category_id,
+        price_retail:      product.price_retail,
+        price_wholesale:   product.price_wholesale,
         wholesale_min_qty: product.wholesale_min_qty,
-        cost_price: product.cost_price,
-        stock_qty: product.stock_qty,
-        min_stock: product.min_stock,
-        unit: product.unit,
-        image_url: product.image_url,
-        is_active: product.is_active,
+        cost_price:        product.cost_price,
+        stock_qty:         product.stock_qty,
+        min_stock:         product.min_stock,
+        unit:              product.unit,
+        image_url:         product.image_url,
+        is_active:         product.is_active,
       })
     } else {
       setForm(emptyForm())
+      setDraftUnits([])
     }
   }, [product])
+
+  /* Sync draft units dari DB (saat edit produk yang sudah punya unit) */
+  useEffect(() => {
+    setDraftUnits(
+      existingUnits.map((u) => ({
+        _key:              u.id,
+        id:                u.id,
+        unit_name:         u.unit_name,
+        conversion_factor: u.conversion_factor,
+        sort_order:        u.sort_order,
+      }))
+    )
+  }, [existingUnits])
 
   function set<K extends keyof ProductInsert>(key: K, value: ProductInsert[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  /* Harga unit = price_wholesale × conversion_factor */
+  function calcUnitPrice(convFactor: number) {
+    return form.price_wholesale * convFactor
+  }
+
+  /* Tambah baris unit baru */
+  function addDraftUnit() {
+    const nextOrder = draftUnits.filter((u) => !u._toDelete).length
+    setDraftUnits((prev) => [
+      ...prev,
+      {
+        _key:              crypto.randomUUID(),
+        unit_name:         '',
+        conversion_factor: 1,
+        sort_order:        nextOrder,
+      },
+    ])
+  }
+
+  /* Update field di baris draft tertentu */
+  function updateDraftUnit(key: string, field: 'unit_name' | 'conversion_factor', value: string | number) {
+    setDraftUnits((prev) =>
+      prev.map((u) => u._key === key ? { ...u, [field]: value } : u)
+    )
+  }
+
+  /* Hapus / tandai hapus baris draft */
+  function removeDraftUnit(key: string) {
+    setDraftUnits((prev) =>
+      prev
+        .map((u) => u._key === key && u.id
+          ? { ...u, _toDelete: true }   // sudah di DB → tandai hapus
+          : u
+        )
+        .filter((u) => !(u._key === key && !u.id))  // baru (no id) → langsung hapus
+    )
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+
+    // Validasi unit partai sebelum save
+    const activeUnits = draftUnits.filter((u) => !u._toDelete)
+    for (const u of activeUnits) {
+      if (!u.unit_name.trim()) {
+        setError('Nama unit partai tidak boleh kosong.')
+        return
+      }
+      if (u.conversion_factor <= 0) {
+        setError('Isi per unit partai harus lebih dari 0.')
+        return
+      }
+    }
+
     setSaving(true)
     setError('')
+
     try {
-      await onSave(form)
+      // 1. Simpan produk (create/update)
+      const { id: productId } = await onSave(form)
+
+      // 2. Hapus unit yang ditandai _toDelete
+      await Promise.all(
+        draftUnits
+          .filter((u) => u._toDelete && u.id)
+          .map((u) => deleteProductUnit(u.id!))
+      )
+
+      // 3. Upsert unit yang aktif
+      await Promise.all(
+        activeUnits.map((u, idx) =>
+          saveProductUnit({
+            id:                u.id,
+            product_id:        productId,
+            unit_name:         u.unit_name.trim(),
+            conversion_factor: u.conversion_factor,
+            sort_order:        idx,
+          })
+        )
+      )
+
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menyimpan produk.')
@@ -75,6 +183,8 @@ export function ProductModal({ product, categories, onSave, onClose }: ProductMo
       setSaving(false)
     }
   }
+
+  const activeUnits = draftUnits.filter((u) => !u._toDelete)
 
   return (
     <div
@@ -177,7 +287,7 @@ export function ProductModal({ product, categories, onSave, onClose }: ProductMo
                 </select>
               </div>
               <div className="pm-field">
-                <label className="pm-label" htmlFor="pm-unit">Satuan</label>
+                <label className="pm-label" htmlFor="pm-unit">Satuan Dasar</label>
                 <select
                   id="pm-unit"
                   className="pm-input"
@@ -259,6 +369,75 @@ export function ProductModal({ product, categories, onSave, onClose }: ProductMo
                 onChange={(e) => set('wholesale_min_qty', parseFloat(e.target.value) || 1)}
               />
             </div>
+          </div>
+
+          {/* SECTION: Unit Partai */}
+          <div className="pm-section">
+            <div className="pm-section-header">
+              <p className="pm-section-label">Unit Partai (Opsional)</p>
+              <button
+                type="button"
+                className="pm-btn-add-unit"
+                onClick={addDraftUnit}
+              >
+                + Tambah Unit
+              </button>
+            </div>
+
+            {activeUnits.length === 0 ? (
+              <p className="pm-hint" style={{ marginTop: 6 }}>
+                Belum ada unit partai. Contoh: pak (10 pcs), karton (40 pcs).
+              </p>
+            ) : (
+              <div className="pm-unit-list">
+                {/* Header kolom */}
+                <div className="pm-unit-row pm-unit-header">
+                  <span>Nama Unit</span>
+                  <span>Isi ({form.unit})</span>
+                  <span>Harga (otomatis)</span>
+                  <span />
+                </div>
+
+                {activeUnits.map((u) => (
+                  <div key={u._key} className="pm-unit-row">
+                    <input
+                      className="pm-input"
+                      type="text"
+                      placeholder="pak / karton / dos"
+                      value={u.unit_name}
+                      onChange={(e) => updateDraftUnit(u._key, 'unit_name', e.target.value)}
+                    />
+                    <input
+                      className="pm-input pm-input-narrow"
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={u.conversion_factor}
+                      onChange={(e) => updateDraftUnit(u._key, 'conversion_factor', parseFloat(e.target.value) || 1)}
+                    />
+                    <span className="pm-unit-price">
+                      {form.price_wholesale > 0
+                        ? formatRp(calcUnitPrice(u.conversion_factor))
+                        : <em className="pm-hint">isi harga grosir dulu</em>}
+                    </span>
+                    <button
+                      type="button"
+                      className="pm-btn-remove-unit"
+                      onClick={() => removeDraftUnit(u._key)}
+                      title="Hapus unit ini"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {form.price_wholesale > 0 && (
+                  <p className="pm-hint pm-unit-hint">
+                    ⓘ Harga = Harga Grosir ({formatRp(form.price_wholesale)}) × Isi per Unit
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* SECTION: Stok */}

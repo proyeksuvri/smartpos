@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PaymentModal } from '../components/PaymentModal'
 import { CloseShiftModal, OpenShiftModal } from '../components/ShiftModals'
@@ -10,6 +10,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useProductCache } from '../lib/productCache'
 import { useShift } from '../hooks/useShift'
 import { formatRp } from '../lib/formatters'
+import { db, type CachedProductUnit } from '../lib/db'
 import type { Product } from '../types/database'
 
 /* ── Helpers ────────────────────────────────────────────── */
@@ -18,14 +19,20 @@ import type { Product } from '../types/database'
 /* ── Cart Item Row ──────────────────────────────────────── */
 interface CartItemRowProps {
   item: ReturnType<typeof useCart>['items'][number]
-  onQty: (id: string, qty: number) => void
-  onRemove: (id: string) => void
+  onQty: (productId: string, unitId: string | null, qty: number) => void
+  onRemove: (productId: string, unitId: string | null) => void
 }
 
 function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
-  const p = item.product
-  const overStock = p.stock_qty > 0 && item.qty > p.stock_qty
-  const hasWholesale = p.price_wholesale > 0 && p.wholesale_min_qty > 1
+  const p      = item.product
+  const unitId = item.unit?.id ?? null
+  const isBulk = item.unit !== null
+
+  // Stok dihitung dari unit dasar
+  const overStock = p.stock_qty > 0 && item.qtyInBase > p.stock_qty
+
+  // Hint grosir hanya untuk mode satuan dasar
+  const hasWholesale     = !isBulk && p.price_wholesale > 0 && p.wholesale_min_qty > 0
   const qtyUntilWholesale = hasWholesale && !item.isWholesale
     ? p.wholesale_min_qty - item.qty
     : 0
@@ -35,12 +42,7 @@ function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
       {/* Thumbnail */}
       <div className="pos-cart-thumb">
         {p.image_url ? (
-          <img
-            src={p.image_url}
-            alt={p.name}
-            className="pos-cart-thumb-img"
-            loading="lazy"
-          />
+          <img src={p.image_url} alt={p.name} className="pos-cart-thumb-img" loading="lazy" />
         ) : (
           <span className="pos-cart-thumb-placeholder">🛍️</span>
         )}
@@ -48,55 +50,59 @@ function CartItemRow({ item, onQty, onRemove }: CartItemRowProps) {
 
       {/* Info */}
       <div className="pos-cart-item-body">
-        {/* Top row: name + badge + remove */}
+        {/* Top row: name + badges + remove */}
         <div className="pos-cart-item-top">
           <div className="pos-cart-item-name-wrap">
             <span className="pos-cart-item-name">{p.name}</span>
+            {isBulk && (
+              <span className="badge-unit">{item.unitLabel}</span>
+            )}
             {item.isWholesale && <span className="badge-grosir">Grosir</span>}
           </div>
           <button
             type="button"
             className="pos-cart-remove"
-            onClick={() => onRemove(p.id)}
+            onClick={() => onRemove(p.id, unitId)}
             title="Hapus item"
-          >
-            ✕
-          </button>
+          >✕</button>
         </div>
+
+        {/* Konversi unit partai → unit dasar */}
+        {isBulk && (
+          <div className="pos-cart-unit-conv">
+            {item.qty} {item.unitLabel} = <strong>{item.qtyInBase} {p.unit}</strong>
+          </div>
+        )}
 
         {/* Bottom row: harga + qty + subtotal */}
         <div className="pos-cart-item-bottom">
-          <span className="pos-cart-item-price">{formatRp(item.unitPrice)}</span>
+          <span className="pos-cart-item-price">
+            {formatRp(item.unitPrice)}<span className="pos-unit-label">/{item.unitLabel}</span>
+          </span>
           <div className="pos-cart-item-controls">
-            <button
-              type="button"
-              className="qty-btn"
-              onClick={() => onQty(p.id, item.qty - 1)}
-            >−</button>
+            <button type="button" className="qty-btn"
+              onClick={() => onQty(p.id, unitId, item.qty - 1)}>−</button>
             <input
               className="qty-input"
               type="number"
               min="1"
               value={item.qty}
-              onChange={(e) => onQty(p.id, parseInt(e.target.value) || 1)}
+              onChange={(e) => onQty(p.id, unitId, parseInt(e.target.value) || 1)}
             />
-            <button
-              type="button"
-              className="qty-btn"
-              onClick={() => onQty(p.id, item.qty + 1)}
-            >+</button>
+            <button type="button" className="qty-btn"
+              onClick={() => onQty(p.id, unitId, item.qty + 1)}>+</button>
           </div>
           <span className="pos-cart-item-subtotal">{formatRp(item.subtotal)}</span>
         </div>
 
-        {/* Wholesale hint */}
+        {/* Wholesale hint (hanya mode satuan) */}
         {qtyUntilWholesale > 0 && (
           <div className="pos-cart-wholesale-hint">
-            Tambah <strong>{qtyUntilWholesale}</strong> lagi → harga grosir {formatRp(p.price_wholesale)}
+            Tambah <strong>{qtyUntilWholesale}</strong> lagi → grosir {formatRp(p.price_wholesale)}/{p.unit}
           </div>
         )}
 
-        {/* Over stock warning */}
+        {/* Over-stock warning */}
         {overStock && (
           <div className="pos-cart-stock-warn">
             ⚠️ Qty melebihi stok ({p.stock_qty} {p.unit})
@@ -116,6 +122,23 @@ export function PosPage() {
 
   // Mode Offline: ambil produk dari IndexedDB cache
   const { products: cachedProducts, loading: productsLoading, syncing: productsSyncing, syncFromServer } = useProductCache()
+
+  // Cache unit partai: Map<product_id, CachedProductUnit[]>
+  const [allUnits, setAllUnits] = useState<Map<string, CachedProductUnit[]>>(new Map())
+  useEffect(() => {
+    db.product_units_cache.toArray().then((rows) => {
+      const map = new Map<string, CachedProductUnit[]>()
+      for (const u of rows) {
+        if (!map.has(u.product_id)) map.set(u.product_id, [])
+        map.get(u.product_id)!.push(u)
+      }
+      // Sort per product by sort_order
+      for (const units of map.values()) {
+        units.sort((a, b) => a.sort_order - b.sort_order)
+      }
+      setAllUnits(map)
+    })
+  }, [productsSyncing]) // reload saat sync selesai
 
   const categories = useMemo(() => {
     const map = new Map<string, string>()
@@ -323,7 +346,11 @@ export function PosPage() {
             {!productsLoading && displayedProducts.length > 0 && (
               <div className="pos-product-grid">
                 {displayedProducts.map((product: Product) => {
-                  const inCart = items.find((i) => i.product.id === product.id)
+                  const productUnits = allUnits.get(product.id) ?? []
+                  const inCartQty   = items
+                    .filter((i) => i.product.id === product.id)
+                    .reduce((s, i) => s + i.qtyInBase, 0)
+                  const inCart  = inCartQty > 0
                   const noStock = product.stock_qty <= 0
                   const lowStock = !noStock && product.min_stock > 0 && product.stock_qty <= product.min_stock
 
@@ -332,7 +359,7 @@ export function PosPage() {
                       key={product.id}
                       type="button"
                       className={`pos-product-card ${inCart ? 'in-cart' : ''} ${noStock ? 'no-stock' : ''}`}
-                      onClick={() => { if (!noStock && hasShift) addItem(product) }}
+                      onClick={() => { if (!noStock && hasShift) addItem(product, 1, null) }}
                       disabled={noStock || !hasShift}
                       title={noStock ? 'Stok habis' : product.name}
                     >
@@ -346,7 +373,30 @@ export function PosPage() {
                       <span className={`pos-product-stock ${lowStock ? 'stock-warn' : ''} ${noStock ? 'stock-out' : ''}`}>
                         {noStock ? '❌ Habis' : `${product.stock_qty} ${product.unit}`}
                       </span>
-                      {inCart && <span className="pos-product-qty-badge">{inCart.qty}</span>}
+                      {inCart && <span className="pos-product-qty-badge">{inCartQty}</span>}
+
+                      {/* Unit partai buttons */}
+                      {productUnits.length > 0 && !noStock && hasShift && (
+                        <div
+                          className="pos-product-units"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {productUnits.map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              className="pos-product-unit-btn"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                addItem(product, 1, u)
+                              }}
+                              title={`${formatRp(u.price)} / ${u.unit_name} (${u.conversion_factor} ${product.unit})`}
+                            >
+                              +{u.unit_name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </button>
                   )
                 })}
@@ -375,7 +425,7 @@ export function PosPage() {
             <div className="pos-cart-items">
               {items.map((item) => (
                 <CartItemRow
-                  key={item.product.id}
+                  key={`${item.product.id}-${item.unit?.id ?? 'base'}`}
                   item={item}
                   onQty={setQty}
                   onRemove={removeItem}

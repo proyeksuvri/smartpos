@@ -42,6 +42,23 @@ export interface Product {
 export type ProductInsert = Omit<Product, 'id' | 'created_at' | 'updated_at' | 'categories'>
 export type ProductUpdate = Partial<ProductInsert>
 
+/** Unit partai produk (pak, karton, dos, karung, dll.) */
+export interface ProductUnit {
+  id:                string
+  product_id:        string
+  unit_name:         string
+  /** Berapa unit dasar per 1 unit ini (mis. 10 pcs per pak) */
+  conversion_factor: number
+  /** Harga per unit ini — otomatis = price_wholesale × conversion_factor */
+  price:             number
+  sort_order:        number
+  created_at:        string
+}
+
+export type ProductUnitInsert = Omit<ProductUnit, 'id' | 'created_at'>
+export type ProductUnitUpdate = Partial<ProductUnitInsert>
+
+
 export interface Customer {
   id: string
   name: string

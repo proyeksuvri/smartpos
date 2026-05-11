@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { db, markProductsSynced, isCacheStale, type CachedProduct } from '../lib/db'
+import { db, markProductsSynced, isCacheStale, type CachedProduct, type CachedProductUnit } from '../lib/db'
 import { supabase } from './supabase'
 
 /**
@@ -31,6 +31,7 @@ export function useProductCache() {
   const syncFromServer = useCallback(async (): Promise<boolean> => {
     setSyncing(true); setError(null)
     try {
+      // ── 1. Sync produk ────────────────────────────────────────────────────
       const { data, error: err } = await supabase
         .from('products')
         .select(`
@@ -73,11 +74,22 @@ export function useProductCache() {
         updated_at:        r.updated_at,
       }))
 
-      // Simpan semua ke IndexedDB (bulkPut = upsert)
       await db.products_cache.clear()
       await db.products_cache.bulkPut(rows)
-      await markProductsSynced()
 
+      // ── 2. Sync product_units ─────────────────────────────────────────────
+      const { data: unitData, error: unitErr } = await supabase
+        .from('product_units')
+        .select('id, product_id, unit_name, conversion_factor, price, sort_order')
+        .order('product_id, sort_order')
+
+      if (unitErr) throw unitErr
+
+      await db.product_units_cache.clear()
+      await db.product_units_cache.bulkPut((unitData ?? []) as CachedProductUnit[])
+
+      // ── 3. Finalisasi ─────────────────────────────────────────────────────
+      await markProductsSynced()
       setProducts(rows)
       setStale(false)
       return true
@@ -90,6 +102,7 @@ export function useProductCache() {
       setSyncing(false)
     }
   }, [])
+
 
   /** Inisialisasi: load cache dulu, lalu cek apakah perlu sync */
   useEffect(() => {

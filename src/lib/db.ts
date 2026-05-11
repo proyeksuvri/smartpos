@@ -28,6 +28,16 @@ export interface CachedProduct {
   updated_at:        string
 }
 
+/** Cache unit partai produk untuk POS offline */
+export interface CachedProductUnit {
+  id:                string
+  product_id:        string
+  unit_name:         string
+  conversion_factor: number
+  price:             number
+  sort_order:        number
+}
+
 export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed'
 
 export interface PendingTransaction {
@@ -74,15 +84,25 @@ export interface SyncMeta {
 
 /* ── Database ───────────────────────────────────────────── */
 class SmartPOSDatabase extends Dexie {
-  products_cache!:      Table<CachedProduct,      string>
+  products_cache!:       Table<CachedProduct,     string>
+  product_units_cache!:  Table<CachedProductUnit, string>
   pending_transactions!: Table<PendingTransaction, string>
-  sync_meta!:           Table<SyncMeta,            string>
+  sync_meta!:            Table<SyncMeta,           string>
 
   constructor() {
     super('smartpos_db')
 
+    // v1 — skema awal
     this.version(1).stores({
       products_cache:       'id, name, sku, barcode, category_id, is_active, updated_at',
+      pending_transactions: 'localId, idempotency_key, sync_status, created_at',
+      sync_meta:            'key',
+    })
+
+    // v2 — tambah tabel product_units_cache
+    this.version(2).stores({
+      products_cache:       'id, name, sku, barcode, category_id, is_active, updated_at',
+      product_units_cache:  'id, product_id',
       pending_transactions: 'localId, idempotency_key, sync_status, created_at',
       sync_meta:            'key',
     })
