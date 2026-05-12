@@ -9,6 +9,7 @@ import {
   useStockProducts,
   type StockProduct,
   type StockStatus,
+  type MovementType,
 } from '../hooks/useStock'
 import { formatDate } from '../lib/formatters'
 import { StockMovementModal, type ModalMode } from '../components/StockMovementModal'
